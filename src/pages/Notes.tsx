@@ -56,8 +56,8 @@ export function Notes() {
   const [editTags, setEditTags] = useState('');
   const [hasUnsaved, setHasUnsaved] = useState(false);
 
-  useEffect(() => {
-    const loadedNotes = storageEnhanced.notes.getAll();
+  const fetchNotes = async () => {
+    const loadedNotes = await storageEnhanced.notes.getAll();
     setNotes(loadedNotes);
     
     // Expand all root categories
@@ -67,6 +67,10 @@ export function Notes() {
     if (loadedNotes.length > 0 && !selectedNoteId) {
       selectNote(loadedNotes[0]);
     }
+  };
+
+  useEffect(() => {
+    fetchNotes();
   }, []);
 
   const selectNote = (note: Note) => {
@@ -89,41 +93,41 @@ export function Notes() {
     setShowTemplates(true);
   };
 
-  const handleCreateFromTemplate = (template: NoteTemplate) => {
-    const newNote = storageEnhanced.notes.add({
+  const handleCreateFromTemplate = async (template: NoteTemplate) => {
+    const newNote = await storageEnhanced.notes.add({
       title: template.name,
       category: template.category,
       content: template.content,
       tags: []
     });
-    setNotes(storageEnhanced.notes.getAll());
+    await fetchNotes();
     selectNote(newNote);
     setViewMode('edit');
   };
 
-  const handleCreateBlank = () => {
-    const newNote = storageEnhanced.notes.add({
+  const handleCreateBlank = async () => {
+    const newNote = await storageEnhanced.notes.add({
       title: 'Untitled Note',
       category: 'Methodology/General',
       content: '# New Note\n\nStart writing your notes here...\n\n## Example Section\n\n```bash\necho "Hello World"\n```',
       tags: []
     });
-    setNotes(storageEnhanced.notes.getAll());
+    await fetchNotes();
     selectNote(newNote);
     setViewMode('edit');
   };
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     if (!selectedNoteId) return;
     
-    storageEnhanced.notes.update(selectedNoteId, {
+    await storageEnhanced.notes.update(selectedNoteId, {
       title: editTitle,
       category: editCategory,
       content: editContent,
       tags: editTags.split(',').map(t => t.trim()).filter(Boolean)
     });
     
-    setNotes(storageEnhanced.notes.getAll());
+    await fetchNotes();
     setHasUnsaved(false);
   }, [selectedNoteId, editTitle, editCategory, editContent, editTags]);
 
@@ -139,11 +143,11 @@ export function Notes() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleSave]);
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selectedNoteId || !confirm('Delete this note permanently?')) return;
     
-    storageEnhanced.notes.delete(selectedNoteId);
-    const updatedNotes = storageEnhanced.notes.getAll();
+    await storageEnhanced.notes.delete(selectedNoteId);
+    const updatedNotes = await storageEnhanced.notes.getAll();
     setNotes(updatedNotes);
     
     if (updatedNotes.length > 0) {
