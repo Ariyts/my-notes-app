@@ -381,6 +381,29 @@ export function Settings() {
                     </div>
                   </div>
                 )}
+
+                {/* Content Types changes */}
+                {changelog.contentTypes && changelog.contentTypes.length > 0 && (
+                  <div>
+                    <h4 className="mb-1 text-xs font-semibold uppercase text-zinc-500">
+                      Content Types
+                    </h4>
+                    <div className="space-y-1">
+                      {changelog.contentTypes.map((change) => (
+                        <div
+                          key={change.id}
+                          className="flex items-center gap-2 text-sm"
+                        >
+                          {getChangeIcon(change.type)}
+                          <span className="text-zinc-300">{change.title}</span>
+                          <span className={`text-xs ${getChangeColor(change.type)}`}>
+                            ({change.type})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

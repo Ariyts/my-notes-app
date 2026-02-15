@@ -7,7 +7,6 @@ import { Resources } from './pages/Resources';
 import { Settings } from './pages/Settings';
 import { ContentTypesManager } from './pages/ContentTypes';
 import { DataProvider } from './lib/DataContext';
-import { ContentTypesProvider } from './lib/ContentTypesContext';
 import { useEffect } from 'react';
 
 export function App() {
@@ -21,22 +20,20 @@ export function App() {
   }, []);
 
   return (
-    <ContentTypesProvider>
-      <DataProvider>
-        <HashRouter>
-          <Routes>
-            <Route path="/" element={<Layout />}>
-              <Route index element={<Prompts />} />
-              <Route path="notes" element={<Notes />} />
-              <Route path="snippets" element={<Snippets />} />
-              <Route path="resources" element={<Resources />} />
-              <Route path="content-types" element={<ContentTypesManager />} />
-              <Route path="settings" element={<Settings />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-          </Routes>
-        </HashRouter>
-      </DataProvider>
-    </ContentTypesProvider>
+    <DataProvider>
+      <HashRouter>
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<Prompts />} />
+            <Route path="notes" element={<Notes />} />
+            <Route path="snippets" element={<Snippets />} />
+            <Route path="resources" element={<Resources />} />
+            <Route path="content-types" element={<ContentTypesManager />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </HashRouter>
+    </DataProvider>
   );
 }

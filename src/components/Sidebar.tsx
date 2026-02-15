@@ -12,11 +12,10 @@ import {
   Cloud,
   FileDown,
   Layers,
-  Plus
 } from 'lucide-react';
 import { cn } from '../utils/cn';
 import { gistSync } from '../lib/storage-enhanced';
-import { useContentTypes } from '../lib/ContentTypesContext';
+import { useData } from '../lib/DataContext';
 
 // Icon mapping for dynamic types
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -49,7 +48,8 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
   const location = useLocation();
   const gistConfig = gistSync.getConfig();
   const isGistConnected = !!gistConfig.gistId;
-  const { types } = useContentTypes();
+  const { data } = useData();
+  const types = data.contentTypes;
 
   return (
     <div className="flex h-screen w-64 flex-col border-r border-zinc-800 bg-zinc-950">

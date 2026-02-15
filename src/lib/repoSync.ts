@@ -3,6 +3,8 @@
  * Handles pushing data files to GitHub (rebuild triggers automatically on push)
  */
 
+import { ContentTypeConfig, DEFAULT_CONTENT_TYPES } from './contentTypes';
+
 export interface SyncResult {
   success: boolean;
   error?: string;
@@ -18,12 +20,12 @@ const REPO_CONFIG = {
   dataPath: 'src/data',
 };
 
-const FILES_TO_SYNC = [
+const DEFAULT_FILES = [
   { name: 'prompts.json', type: 'prompts' },
   { name: 'notes.json', type: 'notes' },
   { name: 'snippets.json', type: 'snippets' },
   { name: 'resources.json', type: 'resources' },
-] as const;
+];
 
 /**
  * Get the current file content and SHA
@@ -46,7 +48,6 @@ async function getFileContent(
 
     if (response.ok) {
       const data = await response.json();
-      // Decode base64 content
       const content = decodeURIComponent(escape(atob(data.content)));
       return { sha: data.sha, content };
     }
@@ -295,7 +296,7 @@ async function updateBranchRef(
 
 /**
  * Main sync function - push all data files in ONE commit
- * GitHub Actions will automatically trigger rebuild on push to master
+ * Includes both default files and custom content types
  */
 export async function syncToRepository(
   data: {
@@ -303,6 +304,7 @@ export async function syncToRepository(
     notes: unknown[];
     snippets: unknown[];
     resources: unknown[];
+    contentTypes?: ContentTypeConfig[];
   },
   token: string,
   onProgress?: (status: string) => void
@@ -325,30 +327,65 @@ export async function syncToRepository(
   const existingFiles = await getDirectoryTree(token, baseTreeSha);
   const existingShaMap = new Map(existingFiles.map((f) => [f.path, f.sha]));
 
-  // Prepare files to commit - only those that changed
+  // Prepare files to commit
   const filesToCommit: { path: string; blobSha: string }[] = [];
   let filesUpdated = 0;
 
-  for (const file of FILES_TO_SYNC) {
+  // Process default files
+  for (const file of DEFAULT_FILES) {
     onProgress?.(`Checking ${file.name}...`);
 
-    const newContent = JSON.stringify(data[file.type], null, 2);
+    const newContent = JSON.stringify(data[file.type as keyof typeof data], null, 2);
     const existingFile = existingShaMap.get(file.name);
 
-    // Create blob for the new content
     const blobSha = await createBlob(token, newContent);
     if (!blobSha) {
       return { success: false, error: `Failed to create blob for ${file.name}` };
     }
 
-    // Check if content changed (compare blob SHA with existing file SHA)
     if (existingFile && existingFile === blobSha) {
-      // Content unchanged - skip this file
       continue;
     }
 
     filesToCommit.push({ path: file.name, blobSha });
     filesUpdated++;
+  }
+
+  // Process content types
+  if (data.contentTypes && data.contentTypes.length > 0) {
+    onProgress?.('Checking content-types.json...');
+
+    // Get custom content types (not default ones)
+    const defaultIds = DEFAULT_CONTENT_TYPES.map(t => t.id);
+    const customTypes = data.contentTypes.filter(t => !defaultIds.includes(t.id));
+
+    // Save all content types config
+    const contentTypesContent = JSON.stringify(data.contentTypes, null, 2);
+    const contentTypesBlobSha = await createBlob(token, contentTypesContent);
+    
+    if (contentTypesBlobSha) {
+      const existingContentTypes = existingShaMap.get('content-types.json');
+      if (!existingContentTypes || existingContentTypes !== contentTypesBlobSha) {
+        filesToCommit.push({ path: 'content-types.json', blobSha: contentTypesBlobSha });
+        filesUpdated++;
+      }
+    }
+
+    // Create empty data files for custom content types
+    for (const customType of customTypes) {
+      const filename = `${customType.id}.json`;
+      onProgress?.(`Creating ${filename}...`);
+
+      const emptyContent = '[]'; // Empty array for new content type
+      const blobSha = await createBlob(token, emptyContent);
+      
+      if (blobSha) {
+        const existingFile = existingShaMap.get(filename);
+        if (!existingFile || existingFile !== blobSha) {
+          filesToCommit.push({ path: filename, blobSha });
+        }
+      }
+    }
   }
 
   // If nothing changed, return success without creating commit

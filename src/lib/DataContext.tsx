@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { Prompt, Note, Snippet, Resource } from '../types';
+import { ContentTypeConfig, DEFAULT_CONTENT_TYPES } from './contentTypes';
 
 // Import initial published data from JSON files (bundled at build time)
 import publishedPrompts from '../data/prompts.json';
@@ -22,6 +23,7 @@ interface DataState {
   notes: Note[];
   snippets: Snippet[];
   resources: Resource[];
+  contentTypes: ContentTypeConfig[];
 }
 
 interface PublishedData {
@@ -29,6 +31,7 @@ interface PublishedData {
   notes: Note[];
   snippets: Snippet[];
   resources: Resource[];
+  contentTypes: ContentTypeConfig[];
 }
 
 interface Changelog {
@@ -36,6 +39,7 @@ interface Changelog {
   notes: ChangeInfo[];
   snippets: ChangeInfo[];
   resources: ChangeInfo[];
+  contentTypes: ChangeInfo[];
   hasChanges: boolean;
   summary: {
     added: number;
@@ -74,6 +78,12 @@ interface DataContextValue {
     update: (id: string, updates: Partial<Resource>) => void;
     delete: (id: string) => void;
   };
+  contentTypes: {
+    getAll: () => ContentTypeConfig[];
+    add: (item: Omit<ContentTypeConfig, 'id' | 'createdAt'>) => ContentTypeConfig;
+    update: (id: string, updates: Partial<ContentTypeConfig>) => void;
+    delete: (id: string) => boolean;
+  };
   // Changelog
   getChangelog: () => Changelog;
   // Reset to published
@@ -89,13 +99,46 @@ function generateId(): string {
   return 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 9);
 }
 
+// Generate content type ID from name
+function generateContentTypeId(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+const CONTENT_TYPES_STORAGE_KEY = 'pentest-hub-content-types';
+
 export function DataProvider({ children }: { children: React.ReactNode }) {
+  // Load content types from localStorage or use defaults
+  const [contentTypes, setContentTypes] = useState<ContentTypeConfig[]>(() => {
+    const saved = localStorage.getItem(CONTENT_TYPES_STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Merge with defaults (in case new default types added)
+        const defaultIds = DEFAULT_CONTENT_TYPES.map(t => t.id);
+        const customTypes = parsed.filter((t: ContentTypeConfig) => !defaultIds.includes(t.id));
+        return [...DEFAULT_CONTENT_TYPES, ...customTypes];
+      } catch {
+        return DEFAULT_CONTENT_TYPES;
+      }
+    }
+    return DEFAULT_CONTENT_TYPES;
+  });
+
+  // Save content types to localStorage
+  useEffect(() => {
+    localStorage.setItem(CONTENT_TYPES_STORAGE_KEY, JSON.stringify(contentTypes));
+  }, [contentTypes]);
+
   // Current data in memory
   const [data, setData] = useState<DataState>({
     prompts: publishedPrompts as Prompt[],
     notes: publishedNotes as Note[],
     snippets: publishedSnippets as Snippet[],
     resources: publishedResources as Resource[],
+    contentTypes: contentTypes,
   });
 
   // Published data (immutable, from bundle)
@@ -104,6 +147,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     notes: publishedNotes as Note[],
     snippets: publishedSnippets as Snippet[],
     resources: publishedResources as Resource[],
+    contentTypes: DEFAULT_CONTENT_TYPES, // Default types are "published"
   };
 
   // Prompts CRUD
@@ -210,6 +254,53 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     },
   };
 
+  // Content Types CRUD
+  const contentTypesApi = {
+    getAll: () => data.contentTypes,
+    add: (item: Omit<ContentTypeConfig, 'id' | 'createdAt'>) => {
+      const newId = generateContentTypeId(item.name);
+      // Ensure unique ID
+      let finalId = newId;
+      let counter = 1;
+      while (data.contentTypes.some(t => t.id === finalId)) {
+        finalId = `${newId}-${counter}`;
+        counter++;
+      }
+
+      const newItem: ContentTypeConfig = {
+        ...item,
+        id: finalId,
+        createdAt: new Date().toISOString(),
+      };
+      setContentTypes(prev => [...prev, newItem]);
+      setData(prev => ({ ...prev, contentTypes: [...prev.contentTypes, newItem] }));
+      return newItem;
+    },
+    update: (id: string, updates: Partial<ContentTypeConfig>) => {
+      setContentTypes(prev => prev.map(t =>
+        t.id === id ? { ...t, ...updates } : t
+      ));
+      setData(prev => ({
+        ...prev,
+        contentTypes: prev.contentTypes.map(t =>
+          t.id === id ? { ...t, ...updates } : t
+        ),
+      }));
+    },
+    delete: (id: string) => {
+      const typeToDelete = data.contentTypes.find(t => t.id === id);
+      if (typeToDelete?.isDefault) {
+        return false;
+      }
+      setContentTypes(prev => prev.filter(t => t.id !== id));
+      setData(prev => ({
+        ...prev,
+        contentTypes: prev.contentTypes.filter(t => t.id !== id),
+      }));
+      return true;
+    },
+  };
+
   // Calculate changelog
   const getChangelog = useCallback((): Changelog => {
     const changes: Changelog = {
@@ -217,12 +308,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       notes: [],
       snippets: [],
       resources: [],
+      contentTypes: [],
       hasChanges: false,
       summary: { added: 0, modified: 0, deleted: 0 },
     };
 
     // Helper to compare items
-    const getItemChanges = <T extends { id: string; title?: string; category?: string }>(
+    const getItemChanges = <T extends { id: string; title?: string; name?: string; category?: string }>(
       current: T[],
       published: T[],
       _key: keyof Changelog
@@ -237,7 +329,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           result.push({
             type: 'added',
             id: item.id,
-            title: (item.title as string) || 'Untitled',
+            title: (item.title as string) || (item.name as string) || 'Untitled',
             category: item.category,
           });
           changes.summary.added++;
@@ -250,7 +342,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           result.push({
             type: 'deleted',
             id: item.id,
-            title: (item.title as string) || 'Untitled',
+            title: (item.title as string) || (item.name as string) || 'Untitled',
             category: item.category,
           });
           changes.summary.deleted++;
@@ -264,7 +356,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           result.push({
             type: 'modified',
             id: item.id,
-            title: (item.title as string) || 'Untitled',
+            title: (item.title as string) || (item.name as string) || 'Untitled',
             category: item.category,
           });
           changes.summary.modified++;
@@ -278,12 +370,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     changes.notes = getItemChanges(data.notes, publishedData.notes, 'notes');
     changes.snippets = getItemChanges(data.snippets, publishedData.snippets, 'snippets');
     changes.resources = getItemChanges(data.resources, publishedData.resources, 'resources');
+    changes.contentTypes = getItemChanges(data.contentTypes, publishedData.contentTypes, 'contentTypes');
 
     changes.hasChanges =
       changes.prompts.length > 0 ||
       changes.notes.length > 0 ||
       changes.snippets.length > 0 ||
-      changes.resources.length > 0;
+      changes.resources.length > 0 ||
+      changes.contentTypes.length > 0;
 
     return changes;
   }, [data, publishedData]);
@@ -295,7 +389,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       notes: [...publishedData.notes],
       snippets: [...publishedData.snippets],
       resources: [...publishedData.resources],
+      contentTypes: [...publishedData.contentTypes],
     });
+    setContentTypes([...DEFAULT_CONTENT_TYPES]);
   }, [publishedData]);
 
   // Export for publishing
@@ -305,6 +401,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       notes: data.notes.map(n => ({ ...n })),
       snippets: data.snippets.map(s => ({ ...s })),
       resources: data.resources.map(r => ({ ...r })),
+      contentTypes: data.contentTypes.map(c => ({ ...c })),
     };
   }, [data]);
 
@@ -315,6 +412,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     notes,
     snippets,
     resources,
+    contentTypes: contentTypesApi,
     getChangelog,
     resetToPublished,
     exportForPublish,
@@ -350,4 +448,9 @@ export function useSnippets() {
 export function useResources() {
   const { resources } = useData();
   return resources;
+}
+
+export function useContentTypesData() {
+  const { contentTypes } = useData();
+  return contentTypes;
 }

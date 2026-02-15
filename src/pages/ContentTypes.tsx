@@ -8,11 +8,10 @@ import {
   Plus,
   Edit2,
   Trash2,
-  GripVertical,
   Terminal,
   StickyNote,
   Database,
-  Link,
+  Link as LinkIcon,
   FileText,
   CheckSquare,
   HelpCircle,
@@ -23,19 +22,19 @@ import {
   Link2,
   CheckCircle,
   MessageSquare,
-  Terminal as TerminalIcon,
   Save,
   X,
-  ChevronDown,
-  ChevronUp,
   Download,
   Upload,
+  Table2,
+  Layers,
 } from 'lucide-react';
-import { useContentTypes } from '../lib/ContentTypesContext';
+import { useData } from '../lib/DataContext';
 import {
   ContentTypeConfig,
   DisplayModel,
   DISPLAY_MODELS,
+  FieldDefinition,
 } from '../lib/contentTypes';
 import { cn } from '../utils/cn';
 
@@ -44,7 +43,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   Terminal,
   StickyNote: StickyNote,
   Database,
-  Link,
+  Link: LinkIcon,
   FileText,
   CheckSquare,
   HelpCircle,
@@ -53,13 +52,48 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
 
 const MODEL_ICONS: Record<DisplayModel, React.ComponentType<{ className?: string }>> = {
   cards: LayoutGrid,
-  table: List,
+  table: Table2,
   folders: FolderTree,
   list: List,
   links: Link2,
   checklist: CheckCircle,
   faq: MessageSquare,
-  commands: TerminalIcon,
+  commands: Terminal,
+};
+
+const MODEL_PREVIEWS: Record<DisplayModel, { title: string; example: string }> = {
+  cards: { 
+    title: 'Cards Grid', 
+    example: '□□□ □□□ □□□\nКаждая карточка с превью содержимого' 
+  },
+  table: { 
+    title: 'Table View', 
+    example: '│ Title │ Status │ Tags │\n│ Item1 │ Done   │ test │' 
+  },
+  folders: { 
+    title: 'Folder Tree', 
+    example: '📁 Category\n  📄 Note 1\n  📄 Note 2' 
+  },
+  list: { 
+    title: 'Simple List', 
+    example: '• Item 1\n• Item 2\n• Item 3' 
+  },
+  links: { 
+    title: 'Link Cards', 
+    example: '🔗 Link Title\n   description preview...' 
+  },
+  checklist: { 
+    title: 'Checklist', 
+    example: '☐ Todo item\n☑ Done item\n⏳ In progress' 
+  },
+  faq: { 
+    title: 'Q&A Format', 
+    example: '❓ Question?\n💬 Answer preview...' 
+  },
+  commands: { 
+    title: 'Commands', 
+    example: '> command --flag\nGrouped by tool' 
+  },
 };
 
 const COLOR_OPTIONS = [
@@ -74,8 +108,22 @@ const COLOR_OPTIONS = [
   { value: 'zinc', label: 'Gray', class: 'bg-zinc-500' },
 ];
 
+const ICON_OPTIONS = [
+  { value: 'Terminal', label: 'Terminal', icon: Terminal },
+  { value: 'StickyNote', label: 'Note', icon: StickyNote },
+  { value: 'Database', label: 'Database', icon: Database },
+  { value: 'Link', label: 'Link', icon: LinkIcon },
+  { value: 'FileText', label: 'File', icon: FileText },
+  { value: 'CheckSquare', label: 'Checklist', icon: CheckSquare },
+  { value: 'HelpCircle', label: 'Help', icon: HelpCircle },
+  { value: 'Code', label: 'Code', icon: Code },
+];
+
 export function ContentTypesManager() {
-  const { types, addType, updateType, deleteType, exportTypes, importTypes } = useContentTypes();
+  const { data, contentTypes, getChangelog } = useData();
+  const types = data.contentTypes;
+  const changelog = getChangelog();
+
   const [editingType, setEditingType] = useState<ContentTypeConfig | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -88,39 +136,14 @@ export function ContentTypesManager() {
     }
 
     if (confirm(`Delete "${type.name}"? All data in this type will be lost.`)) {
-      deleteType(type.id);
-      setMessage({ type: 'success', text: `"${type.name}" deleted` });
-      setTimeout(() => setMessage(null), 3000);
-    }
-  };
-
-  const handleExport = () => {
-    const json = exportTypes();
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'content-types-config.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        importTypes(event.target?.result as string);
-        setMessage({ type: 'success', text: 'Content types imported' });
-      } catch {
-        setMessage({ type: 'error', text: 'Failed to import' });
+      const success = contentTypes.delete(type.id);
+      if (success) {
+        setMessage({ type: 'success', text: `"${type.name}" deleted` });
+      } else {
+        setMessage({ type: 'error', text: 'Failed to delete' });
       }
       setTimeout(() => setMessage(null), 3000);
-    };
-    reader.readAsText(file);
-    e.target.value = '';
+    }
   };
 
   return (
@@ -128,29 +151,22 @@ export function ContentTypesManager() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100">Content Types</h1>
-          <p className="text-sm text-zinc-500">Manage content types and their display models</p>
+          <p className="text-sm text-zinc-500">
+            Manage content types and their display models
+            {changelog.contentTypes && changelog.contentTypes.length > 0 && (
+              <span className="ml-2 text-amber-400">
+                ({changelog.contentTypes.length} unsaved changes)
+              </span>
+            )}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700"
-          >
-            <Download className="h-4 w-4" />
-            Export
-          </button>
-          <label className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 cursor-pointer">
-            <Upload className="h-4 w-4" />
-            Import
-            <input type="file" accept=".json" className="hidden" onChange={handleImport} />
-          </label>
-          <button
-            onClick={() => setIsCreating(true)}
-            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500"
-          >
-            <Plus className="h-4 w-4" />
-            New Type
-          </button>
-        </div>
+        <button
+          onClick={() => setIsCreating(true)}
+          className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500"
+        >
+          <Plus className="h-4 w-4" />
+          New Type
+        </button>
       </div>
 
       {message && (
@@ -163,6 +179,18 @@ export function ContentTypesManager() {
           {message.text}
         </div>
       )}
+
+      {/* Info Banner */}
+      <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-4 text-sm text-blue-300">
+        <div className="flex items-start gap-2">
+          <Layers className="h-4 w-4 mt-0.5 shrink-0" />
+          <div>
+            <strong>Content Types</strong> are the building blocks of your vault.
+            Choose a display model that fits your data: cards for prompts, folders for notes,
+            table for structured data, links for bookmarks, etc.
+          </div>
+        </div>
+      </div>
 
       {/* Content Types List */}
       <div className="space-y-3">
@@ -196,9 +224,6 @@ export function ContentTypesManager() {
                     {DISPLAY_MODELS[type.displayModel].label}
                   </span>
                   <span>{type.fields.length} fields</span>
-                  {type.description && (
-                    <span className="truncate max-w-[200px]">{type.description}</span>
-                  )}
                 </div>
               </div>
 
@@ -239,13 +264,14 @@ export function ContentTypesManager() {
           }}
           onSave={(config) => {
             if (editingType) {
-              updateType(editingType.id, config);
+              contentTypes.update(editingType.id, config);
+              setMessage({ type: 'success', text: 'Type updated' });
             } else {
-              addType(config as Omit<ContentTypeConfig, 'id' | 'createdAt'>);
+              contentTypes.add(config as Omit<ContentTypeConfig, 'id' | 'createdAt'>);
+              setMessage({ type: 'success', text: 'Type created! Publish to save.' });
             }
             setIsCreating(false);
             setEditingType(null);
-            setMessage({ type: 'success', text: editingType ? 'Type updated' : 'Type created' });
             setTimeout(() => setMessage(null), 3000);
           }}
         />
@@ -254,7 +280,7 @@ export function ContentTypesManager() {
   );
 }
 
-// Content Type Editor Modal
+// Content Type Editor Modal with Visual Previews
 function ContentTypeEditor({
   type,
   onClose,
@@ -269,28 +295,12 @@ function ContentTypeEditor({
   const [displayModel, setDisplayModel] = useState<DisplayModel>(type?.displayModel || 'cards');
   const [color, setColor] = useState(type?.color || 'emerald');
   const [description, setDescription] = useState(type?.description || '');
-  const [fields, setFields] = useState(type?.fields || DISPLAY_MODELS.cards.defaultFields);
-  const [showFieldEditor, setShowFieldEditor] = useState(false);
+  const [fields, setFields] = useState<FieldDefinition[]>(type?.fields || DISPLAY_MODELS.cards.defaultFields);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const handleModelChange = (model: DisplayModel) => {
     setDisplayModel(model);
-    // Reset fields to default for this model
     setFields(DISPLAY_MODELS[model].defaultFields);
-  };
-
-  const handleAddField = () => {
-    setFields([
-      ...fields,
-      { name: '', label: '', type: 'text', required: false },
-    ]);
-  };
-
-  const handleUpdateField = (index: number, updates: Partial<typeof fields[0]>) => {
-    setFields(fields.map((f, i) => (i === index ? { ...f, ...updates } : f)));
-  };
-
-  const handleRemoveField = (index: number) => {
-    setFields(fields.filter((_, i) => i !== index));
   };
 
   const handleSave = () => {
@@ -309,10 +319,10 @@ function ContentTypeEditor({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl">
-        <div className="sticky top-0 flex items-center justify-between border-b border-zinc-800 bg-zinc-900 px-6 py-4">
+      <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl">
+        <div className="sticky top-0 flex items-center justify-between border-b border-zinc-800 bg-zinc-900 px-6 py-4 z-10">
           <h2 className="text-xl font-bold text-zinc-100">
-            {type ? 'Edit Content Type' : 'New Content Type'}
+            {type ? 'Edit Content Type' : 'Create New Content Type'}
           </h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">
             <X className="h-5 w-5" />
@@ -320,112 +330,170 @@ function ContentTypeEditor({
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Basic Info */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-zinc-400">Name</label>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g., 4PDA"
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-zinc-400">Icon</label>
-              <select
-                value={icon}
-                onChange={(e) => setIcon(e.target.value)}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-zinc-100 focus:border-emerald-500 focus:outline-none"
-              >
-                {Object.keys(ICON_MAP).map((iconName) => {
-                  const Icon = ICON_MAP[iconName];
+          {/* Step 1: Name & Icon */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-zinc-300">1. Name & Icon</label>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g., 4PDA, Tools, Books..."
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-lg text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+              <div className="flex gap-1">
+                {ICON_OPTIONS.map((opt) => {
+                  const Icon = opt.icon;
                   return (
-                    <option key={iconName} value={iconName}>
-                      {iconName}
-                    </option>
+                    <button
+                      key={opt.value}
+                      onClick={() => setIcon(opt.value)}
+                      className={cn(
+                        'flex h-12 w-12 items-center justify-center rounded-lg border transition-all',
+                        icon === opt.value
+                          ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
+                          : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                      )}
+                      title={opt.label}
+                    >
+                      <Icon className="h-5 w-5" />
+                    </button>
                   );
                 })}
-              </select>
+              </div>
             </div>
           </div>
 
+          {/* Step 2: Display Model */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-zinc-400">Description</label>
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional description"
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
-            />
+            <label className="mb-2 block text-sm font-medium text-zinc-300">2. Display Model</label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {(Object.entries(DISPLAY_MODELS) as [DisplayModel, typeof DISPLAY_MODELS.cards][]).map(([value, config]) => {
+                const ModelIcon = MODEL_ICONS[value];
+                const preview = MODEL_PREVIEWS[value];
+                const isSelected = displayModel === value;
+
+                return (
+                  <button
+                    key={value}
+                    onClick={() => handleModelChange(value)}
+                    className={cn(
+                      'flex flex-col items-start rounded-xl border p-4 text-left transition-all',
+                      isSelected
+                        ? 'border-emerald-500 bg-emerald-500/10'
+                        : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
+                    )}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <ModelIcon className={cn('h-5 w-5', isSelected ? 'text-emerald-400' : 'text-zinc-400')} />
+                      <span className={cn('font-medium', isSelected ? 'text-emerald-400' : 'text-zinc-300')}>
+                        {config.label}
+                      </span>
+                    </div>
+                    <pre className="text-[10px] text-zinc-500 whitespace-pre-wrap font-mono leading-tight">
+                      {preview.example}
+                    </pre>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-zinc-400">Display Model</label>
-              <select
-                value={displayModel}
-                onChange={(e) => handleModelChange(e.target.value as DisplayModel)}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-zinc-100 focus:border-emerald-500 focus:outline-none"
-              >
-                {Object.entries(DISPLAY_MODELS).map(([value, config]) => (
-                  <option key={value} value={value}>
-                    {config.label} - {config.description}
-                  </option>
-                ))}
-              </select>
+          {/* Step 3: Color */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-zinc-300">3. Accent Color</label>
+            <div className="flex gap-2">
+              {COLOR_OPTIONS.map((c) => (
+                <button
+                  key={c.value}
+                  onClick={() => setColor(c.value)}
+                  className={cn(
+                    'h-10 w-10 rounded-lg border-2 transition-all flex items-center justify-center',
+                    c.class,
+                    color === c.value ? 'border-white scale-110 ring-2 ring-white/30' : 'border-transparent'
+                  )}
+                  title={c.label}
+                >
+                  {color === c.value && <CheckCircle className="h-5 w-5 text-white" />}
+                </button>
+              ))}
             </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-zinc-400">Color</label>
-              <div className="flex gap-2">
-                {COLOR_OPTIONS.map((c) => (
-                  <button
-                    key={c.value}
-                    onClick={() => setColor(c.value)}
-                    className={cn(
-                      'h-10 w-10 rounded-lg border-2 transition-all',
-                      c.class,
-                      color === c.value ? 'border-white scale-110' : 'border-transparent'
-                    )}
-                    title={c.label}
-                  />
+          </div>
+
+          {/* Preview */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-zinc-300">Preview</label>
+            <div className={cn(
+              'rounded-xl border p-4',
+              `border-${color}-500/30`,
+              `bg-${color}-500/5`
+            )}>
+              <div className="flex items-center gap-3 mb-3">
+                {(() => {
+                  const Icon = ICON_MAP[icon] || FileText;
+                  return <Icon className={cn('h-6 w-6', `text-${color}-400`)} />;
+                })()}
+                <span className="text-lg font-semibold text-zinc-100">
+                  {name || 'New Type'}
+                </span>
+                <span className="text-xs text-zinc-500">
+                  ({DISPLAY_MODELS[displayModel].label})
+                </span>
+              </div>
+              <pre className="text-xs text-zinc-400 whitespace-pre-wrap font-mono">
+                {MODEL_PREVIEWS[displayModel].example}
+              </pre>
+              <div className="mt-3 flex gap-1.5">
+                {fields.slice(0, 4).map(f => (
+                  <span key={f.name} className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">
+                    {f.label}
+                  </span>
                 ))}
               </div>
             </div>
           </div>
 
-          {/* Fields Editor */}
+          {/* Advanced: Fields */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-zinc-400">Fields</label>
-              <button
-                onClick={() => setShowFieldEditor(!showFieldEditor)}
-                className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"
-              >
-                {showFieldEditor ? 'Hide' : 'Customize'} fields
-                {showFieldEditor ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-              </button>
-            </div>
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-200"
+            >
+              {showAdvanced ? '▼' : '▶'} Advanced: Customize Fields
+            </button>
 
-            {showFieldEditor ? (
-              <div className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-800/50 p-3">
+            {showAdvanced && (
+              <div className="mt-3 space-y-2 rounded-lg border border-zinc-700 bg-zinc-800/50 p-3">
                 {fields.map((field, index) => (
                   <div key={index} className="flex items-center gap-2">
                     <input
                       value={field.name}
-                      onChange={(e) => handleUpdateField(index, { name: e.target.value })}
-                      placeholder="Field name"
-                      className="flex-1 rounded bg-zinc-700 px-2 py-1.5 text-sm text-zinc-100"
+                      onChange={(e) => {
+                        const newFields = [...fields];
+                        newFields[index] = { ...newFields[index], name: e.target.value };
+                        setFields(newFields);
+                      }}
+                      placeholder="name"
+                      className="w-24 rounded bg-zinc-700 px-2 py-1.5 text-sm text-zinc-100"
                     />
                     <input
                       value={field.label}
-                      onChange={(e) => handleUpdateField(index, { label: e.target.value })}
+                      onChange={(e) => {
+                        const newFields = [...fields];
+                        newFields[index] = { ...newFields[index], label: e.target.value };
+                        setFields(newFields);
+                      }}
                       placeholder="Label"
                       className="flex-1 rounded bg-zinc-700 px-2 py-1.5 text-sm text-zinc-100"
                     />
                     <select
                       value={field.type}
-                      onChange={(e) => handleUpdateField(index, { type: e.target.value as FieldDefinition['type'] })}
+                      onChange={(e) => {
+                        const newFields = [...fields];
+                        newFields[index] = { ...newFields[index], type: e.target.value as FieldDefinition['type'] };
+                        setFields(newFields);
+                      }}
                       className="rounded bg-zinc-700 px-2 py-1.5 text-sm text-zinc-100"
                     >
                       <option value="text">Text</option>
@@ -435,17 +503,8 @@ function ContentTypeEditor({
                       <option value="url">URL</option>
                       <option value="date">Date</option>
                     </select>
-                    <label className="flex items-center gap-1 text-xs text-zinc-400">
-                      <input
-                        type="checkbox"
-                        checked={field.required}
-                        onChange={(e) => handleUpdateField(index, { required: e.target.checked })}
-                        className="rounded border-zinc-600"
-                      />
-                      Req
-                    </label>
                     <button
-                      onClick={() => handleRemoveField(index)}
+                      onClick={() => setFields(fields.filter((_, i) => i !== index))}
                       className="p-1 text-zinc-500 hover:text-red-400"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -453,34 +512,24 @@ function ContentTypeEditor({
                   </div>
                 ))}
                 <button
-                  onClick={handleAddField}
+                  onClick={() => setFields([...fields, { name: '', label: '', type: 'text' }])}
                   className="flex items-center gap-1 text-sm text-zinc-400 hover:text-zinc-200"
                 >
-                  <Plus className="h-4 w-4" />
-                  Add field
+                  <Plus className="h-4 w-4" /> Add field
                 </button>
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {fields.map((field) => (
-                  <span
-                    key={field.name}
-                    className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300"
-                  >
-                    {field.label}
-                    {field.required && <span className="text-red-400 ml-1">*</span>}
-                  </span>
-                ))}
               </div>
             )}
           </div>
 
-          {/* Model Preview */}
-          <div className="rounded-lg border border-zinc-700 bg-zinc-800/30 p-4">
-            <div className="text-xs text-zinc-500 mb-2">Preview: {DISPLAY_MODELS[displayModel].description}</div>
-            <div className="text-sm text-zinc-400">
-              Items will be displayed as <strong className="text-zinc-200">{DISPLAY_MODELS[displayModel].label}</strong>
-            </div>
+          {/* Description */}
+          <div>
+            <label className="mb-1.5 block text-sm text-zinc-400">Description (optional)</label>
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Brief description of this content type"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+            />
           </div>
         </div>
 
@@ -504,5 +553,3 @@ function ContentTypeEditor({
     </div>
   );
 }
-
-import { FieldDefinition } from '../lib/contentTypes';
