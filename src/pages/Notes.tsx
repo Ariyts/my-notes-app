@@ -119,12 +119,10 @@ export function Notes() {
   };
 
   const handleUpdate = (id: string, data: Partial<FolderItem>) => {
-    notesApi.update(id, {
-      title: data.title,
-      category: data.category,
-      content: data.content,
-      tags: data.tags,
-    });
+    // Only update fields that were actually provided
+    const updates: Partial<Note> = { ...data };
+    
+    notesApi.update(id, updates);
     
     // Update local state if this is the selected item
     if (selectedItem?.id === id) {

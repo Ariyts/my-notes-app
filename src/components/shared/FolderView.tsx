@@ -118,6 +118,7 @@ export function FolderView({
   const [renamingFolderValue, setRenamingFolderValue] = useState('');
   const [renamingItem, setRenamingItem] = useState<string | null>(null);
   const [renamingItemValue, setRenamingItemValue] = useState('');
+  const renamingJustCompleted = useRef(false);
 
   // Initialize expanded folders
   useEffect(() => {
@@ -193,21 +194,43 @@ export function FolderView({
   };
 
   const handleRenameFolder = (oldPath: string, newPath: string) => {
-    if (!newPath.trim() || oldPath === newPath) return;
+    // Prevent double execution from Enter + onBlur
+    if (renamingJustCompleted.current) {
+      renamingJustCompleted.current = false;
+      return;
+    }
+    
+    // Validate
+    const trimmedNewPath = newPath.trim();
+    if (!trimmedNewPath || trimmedNewPath === oldPath) {
+      return;
+    }
+    
+    // Mark as completed to prevent onBlur from firing again
+    renamingJustCompleted.current = true;
     
     // Update all items in this folder
     items.forEach(item => {
       if (item.category === oldPath) {
-        onUpdate(item.id, { category: newPath });
+        onUpdate(item.id, { category: trimmedNewPath });
       } else if (item.category.startsWith(oldPath + '/')) {
-        onUpdate(item.id, { category: item.category.replace(oldPath + '/', newPath + '/') });
+        onUpdate(item.id, { category: item.category.replace(oldPath + '/', trimmedNewPath + '/') });
       }
     });
   };
 
   const handleRenameItem = (itemId: string, newTitle: string) => {
-    if (!newTitle.trim()) return;
-    onUpdate(itemId, { title: newTitle });
+    // Prevent double execution
+    if (renamingJustCompleted.current) {
+      renamingJustCompleted.current = false;
+      return;
+    }
+    
+    const trimmedTitle = newTitle.trim();
+    if (!trimmedTitle) return;
+    
+    renamingJustCompleted.current = true;
+    onUpdate(itemId, { title: trimmedTitle });
   };
 
   const handleImportFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -422,10 +445,20 @@ export function FolderView({
                       value={renamingFolderValue}
                       onChange={(e) => setRenamingFolderValue(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') { handleRenameFolder(rootCategory, renamingFolderValue); setRenamingFolder(null); }
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleRenameFolder(rootCategory, renamingFolderValue);
+                          setRenamingFolder(null);
+                        }
                         if (e.key === 'Escape') { setRenamingFolder(null); }
                       }}
-                      onBlur={() => { handleRenameFolder(rootCategory, renamingFolderValue); setRenamingFolder(null); }}
+                      onBlur={() => {
+                        // Only rename if not already completed via Enter
+                        if (renamingFolder === rootCategory) {
+                          handleRenameFolder(rootCategory, renamingFolderValue);
+                          setRenamingFolder(null);
+                        }
+                      }}
                       className="bg-zinc-700 px-1 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                       autoFocus
                       onClick={(e) => e.stopPropagation()}
@@ -465,10 +498,26 @@ export function FolderView({
                               value={renamingFolderValue}
                               onChange={(e) => setRenamingFolderValue(e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') { handleRenameFolder(`${rootCategory}/${subCategory}`, `${rootCategory}/${renamingFolderValue}`); setRenamingFolder(null); }
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  // For subfolders, construct the new full path
+                                  const newFullPath = renamingFolderValue.includes('/') 
+                                    ? renamingFolderValue 
+                                    : `${rootCategory}/${renamingFolderValue}`;
+                                  handleRenameFolder(`${rootCategory}/${subCategory}`, newFullPath);
+                                  setRenamingFolder(null);
+                                }
                                 if (e.key === 'Escape') { setRenamingFolder(null); }
                               }}
-                              onBlur={() => { handleRenameFolder(`${rootCategory}/${subCategory}`, `${rootCategory}/${renamingFolderValue}`); setRenamingFolder(null); }}
+                              onBlur={() => {
+                                if (renamingFolder === `${rootCategory}/${subCategory}`) {
+                                  const newFullPath = renamingFolderValue.includes('/') 
+                                    ? renamingFolderValue 
+                                    : `${rootCategory}/${renamingFolderValue}`;
+                                  handleRenameFolder(`${rootCategory}/${subCategory}`, newFullPath);
+                                  setRenamingFolder(null);
+                                }
+                              }}
                               className="bg-zinc-700 px-1 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 flex-1"
                               autoFocus
                             />
@@ -509,10 +558,19 @@ export function FolderView({
                               value={renamingItemValue}
                               onChange={(e) => setRenamingItemValue(e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') { handleRenameItem(item.id, renamingItemValue); setRenamingItem(null); }
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleRenameItem(item.id, renamingItemValue);
+                                  setRenamingItem(null);
+                                }
                                 if (e.key === 'Escape') { setRenamingItem(null); }
                               }}
-                              onBlur={() => { handleRenameItem(item.id, renamingItemValue); setRenamingItem(null); }}
+                              onBlur={() => {
+                                if (renamingItem === item.id) {
+                                  handleRenameItem(item.id, renamingItemValue);
+                                  setRenamingItem(null);
+                                }
+                              }}
                               className="bg-zinc-700 px-1 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 flex-1"
                               autoFocus
                             />
