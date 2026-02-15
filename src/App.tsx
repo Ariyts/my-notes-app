@@ -6,6 +6,7 @@ import { Snippets } from './pages/Snippets';
 import { Resources } from './pages/Resources';
 import { Settings } from './pages/Settings';
 import { ContentTypesManager } from './pages/ContentTypes';
+import { DynamicContent } from './pages/DynamicContent';
 import { DataProvider } from './lib/DataContext';
 import { useEffect } from 'react';
 
@@ -29,6 +30,7 @@ export function App() {
             <Route path="snippets" element={<Snippets />} />
             <Route path="resources" element={<Resources />} />
             <Route path="content-types" element={<ContentTypesManager />} />
+            <Route path="content/:typeId" element={<DynamicContent />} />
             <Route path="settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
