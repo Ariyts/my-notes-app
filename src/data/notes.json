@@ -34,5 +34,13 @@
       "bloodhound"
     ],
     "updatedAt": "2024-01-15T10:00:00.000Z"
+  },
+  {
+    "title": "Untitled Note",
+    "category": "Active Directory",
+    "content": "# New Note\n\nStart writing your notes here...\n\n## Example Section\n\n```bash\necho \"Hello World\"\n```",
+    "tags": [],
+    "id": "id-mlo3j2a6-s88e4nplp",
+    "updatedAt": "2026-02-15T18:45:55.662Z"
   }
 ]

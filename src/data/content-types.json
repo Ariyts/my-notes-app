@@ -1,0 +1,241 @@
+[
+  {
+    "id": "prompts",
+    "name": "Prompts",
+    "icon": "Terminal",
+    "displayModel": "cards",
+    "fields": [
+      {
+        "name": "title",
+        "label": "Title",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "content",
+        "label": "Prompt",
+        "type": "textarea",
+        "required": true
+      },
+      {
+        "name": "category",
+        "label": "Category",
+        "type": "select",
+        "options": [
+          "recon",
+          "exploit",
+          "privesc",
+          "persistence",
+          "evasion",
+          "reporting",
+          "social",
+          "other"
+        ],
+        "default": "other"
+      },
+      {
+        "name": "tags",
+        "label": "Tags",
+        "type": "tags"
+      }
+    ],
+    "categoryField": "category",
+    "color": "emerald",
+    "isDefault": true,
+    "createdAt": "2026-02-15T18:45:33.355Z"
+  },
+  {
+    "id": "notes",
+    "name": "Notes",
+    "icon": "StickyNote",
+    "displayModel": "folders",
+    "fields": [
+      {
+        "name": "title",
+        "label": "Title",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "content",
+        "label": "Content",
+        "type": "textarea",
+        "required": true
+      },
+      {
+        "name": "category",
+        "label": "Folder",
+        "type": "text",
+        "default": "General"
+      },
+      {
+        "name": "tags",
+        "label": "Tags",
+        "type": "tags"
+      }
+    ],
+    "categoryField": "category",
+    "color": "blue",
+    "isDefault": true,
+    "createdAt": "2026-02-15T18:45:33.355Z"
+  },
+  {
+    "id": "snippets",
+    "name": "Snippets",
+    "icon": "Database",
+    "displayModel": "commands",
+    "fields": [
+      {
+        "name": "title",
+        "label": "Title",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "command",
+        "label": "Command",
+        "type": "textarea",
+        "required": true
+      },
+      {
+        "name": "tool",
+        "label": "Tool",
+        "type": "text",
+        "required": true,
+        "default": "bash"
+      },
+      {
+        "name": "description",
+        "label": "Description",
+        "type": "textarea"
+      },
+      {
+        "name": "tags",
+        "label": "Tags",
+        "type": "tags"
+      }
+    ],
+    "categoryField": "tool",
+    "color": "purple",
+    "isDefault": true,
+    "createdAt": "2026-02-15T18:45:33.355Z"
+  },
+  {
+    "id": "resources",
+    "name": "Resources",
+    "icon": "Link",
+    "displayModel": "links",
+    "fields": [
+      {
+        "name": "title",
+        "label": "Title",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "url",
+        "label": "URL",
+        "type": "url",
+        "required": true
+      },
+      {
+        "name": "category",
+        "label": "Category",
+        "type": "select",
+        "options": [
+          "tools",
+          "cheatsheets",
+          "wordlists",
+          "payloads",
+          "exploits",
+          "learning",
+          "blogs",
+          "labs",
+          "ctf",
+          "other"
+        ],
+        "default": "other"
+      },
+      {
+        "name": "note",
+        "label": "Note",
+        "type": "textarea"
+      }
+    ],
+    "categoryField": "category",
+    "color": "orange",
+    "isDefault": true,
+    "createdAt": "2026-02-15T18:45:33.355Z"
+  },
+  {
+    "name": "4PDA",
+    "icon": "FileText",
+    "displayModel": "folders",
+    "color": "emerald",
+    "description": "",
+    "fields": [
+      {
+        "name": "title",
+        "label": "Title",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "content",
+        "label": "Content",
+        "type": "textarea",
+        "required": true
+      },
+      {
+        "name": "category",
+        "label": "Folder Path",
+        "type": "text",
+        "placeholder": "e.g., Web/XSS",
+        "default": "General"
+      },
+      {
+        "name": "tags",
+        "label": "Tags",
+        "type": "tags"
+      }
+    ],
+    "categoryField": "category",
+    "id": "4pda",
+    "createdAt": "2026-02-15T16:57:29.743Z"
+  },
+  {
+    "name": "123",
+    "icon": "Database",
+    "displayModel": "faq",
+    "color": "emerald",
+    "description": "",
+    "fields": [
+      {
+        "name": "title",
+        "label": "Question",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "content",
+        "label": "Answer",
+        "type": "textarea",
+        "required": true
+      },
+      {
+        "name": "category",
+        "label": "Category",
+        "type": "text",
+        "default": "General"
+      },
+      {
+        "name": "tags",
+        "label": "Tags",
+        "type": "tags"
+      }
+    ],
+    "categoryField": "category",
+    "id": "123",
+    "createdAt": "2026-02-15T17:52:39.670Z"
+  }
+]
