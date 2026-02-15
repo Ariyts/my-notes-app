@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { Plus, Search, Trash2, ExternalLink, Link as LinkIcon, Edit2, Globe, CheckCircle, XCircle, RefreshCw, Filter } from 'lucide-react';
+import { useData } from '../lib/DataContext';
 import { Resource } from '../types';
 import { cn } from '../utils/cn';
 
@@ -21,27 +22,18 @@ const getCategoryInfo = (category: string) => {
 };
 
 export function Resources() {
-  const [resources, setResources] = useState<Resource[]>([]);
+  const { resources: resourcesApi, data } = useData();
+  const resources = data.resources;
+  
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
   const [isCreating, setIsCreating] = useState(false);
   const [isEditing, setIsEditing] = useState<Resource | null>(null);
   const [linkStatus, setLinkStatus] = useState<Record<string, 'checking' | 'ok' | 'error'>>({});
 
-  useEffect(() => {
-    const saved = localStorage.getItem('pentest_resources');
-    if (saved) setResources(JSON.parse(saved));
-  }, []);
-
-  const saveResources = (newResources: Resource[]) => {
-    localStorage.setItem('pentest_resources', JSON.stringify(newResources));
-    setResources(newResources);
-  };
-
   const handleDelete = (id: string) => {
     if (confirm('Delete this resource?')) {
-      const updated = resources.filter(r => r.id !== id);
-      saveResources(updated);
+      resourcesApi.delete(id);
     }
   };
 
@@ -57,14 +49,9 @@ export function Resources() {
     };
 
     if (isEditing) {
-      const updated = resources.map(r => r.id === isEditing.id ? { ...r, ...data } : r);
-      saveResources(updated);
+      resourcesApi.update(isEditing.id, data);
     } else {
-      const newItem: Resource = {
-        id: crypto.randomUUID(),
-        ...data
-      };
-      saveResources([...resources, newItem]);
+      resourcesApi.add(data);
     }
 
     setIsCreating(false);
@@ -74,10 +61,7 @@ export function Resources() {
   const checkLink = async (id: string, url: string) => {
     setLinkStatus(prev => ({ ...prev, [id]: 'checking' }));
     try {
-      // Using a CORS proxy or just check if it's a valid URL
       new URL(url);
-      // In a real app, you'd ping the URL through a proxy
-      // For now, just simulate the check
       await new Promise(resolve => setTimeout(resolve, 500));
       setLinkStatus(prev => ({ ...prev, [id]: 'ok' }));
     } catch {
@@ -89,22 +73,24 @@ export function Resources() {
     resources.forEach(r => checkLink(r.id, r.url));
   };
 
-  const filteredResources = resources.filter(r => {
+  const filteredResources = useMemo(() => resources.filter(r => {
     const matchesSearch = r.title.toLowerCase().includes(search.toLowerCase()) || 
                           r.category.toLowerCase().includes(search.toLowerCase()) ||
                           r.note?.toLowerCase().includes(search.toLowerCase()) ||
                           r.url.toLowerCase().includes(search.toLowerCase());
     const matchesCategory = filterCategory === 'all' || r.category.toLowerCase() === filterCategory.toLowerCase();
     return matchesSearch && matchesCategory;
-  });
+  }), [resources, search, filterCategory]);
 
   // Group by category
-  const groupedResources = filteredResources.reduce((acc, resource) => {
-    const cat = resource.category.toLowerCase();
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(resource);
-    return acc;
-  }, {} as Record<string, Resource[]>);
+  const groupedResources = useMemo(() => {
+    return filteredResources.reduce((acc, resource) => {
+      const cat = resource.category.toLowerCase();
+      if (!acc[cat]) acc[cat] = [];
+      acc[cat].push(resource);
+      return acc;
+    }, {} as Record<string, Resource[]>);
+  }, [filteredResources]);
 
   const allCategories = [...new Set(resources.map(r => r.category.toLowerCase()))];
 
@@ -224,7 +210,6 @@ export function Resources() {
                         </div>
                       </div>
                       
-                      {/* Status indicator */}
                       {linkStatus[resource.id] && (
                         <div className="shrink-0">
                           {linkStatus[resource.id] === 'checking' && (

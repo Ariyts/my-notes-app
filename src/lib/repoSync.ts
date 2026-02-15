@@ -1,20 +1,13 @@
 /**
  * Repository Sync Module
- * Handles pushing data files to GitHub and triggering rebuild
+ * Handles pushing data files to GitHub (rebuild triggers automatically on push)
  */
-
-export interface RepoSyncConfig {
-  owner: string;
-  repo: string;
-  branch: string;
-  token: string;
-}
 
 export interface SyncResult {
   success: boolean;
   error?: string;
   commitSha?: string;
-  workflowTriggered?: boolean;
+  commitUrl?: string;
 }
 
 export interface FileCommitResult {
@@ -132,34 +125,8 @@ async function commitFile(
 }
 
 /**
- * Trigger GitHub Actions workflow to rebuild the site
- */
-async function triggerWorkflow(token: string): Promise<boolean> {
-  try {
-    const response = await fetch(
-      `https://api.github.com/repos/${REPO_CONFIG.owner}/${REPO_CONFIG.repo}/actions/workflows/deploy.yml/dispatches`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-        body: JSON.stringify({
-          ref: REPO_CONFIG.branch,
-        }),
-      }
-    );
-
-    return response.ok || response.status === 204;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Main sync function - push all data files and trigger rebuild
+ * Main sync function - push all data files
+ * GitHub Actions will automatically trigger rebuild on push to master
  */
 export async function syncToRepository(
   data: {
@@ -204,6 +171,9 @@ export async function syncToRepository(
     if (result.success && result.sha) {
       lastCommitSha = result.sha;
     }
+
+    // Small delay between files
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
   // Check if all files were committed successfully
@@ -215,74 +185,16 @@ export async function syncToRepository(
     };
   }
 
-  // Trigger workflow
-  onProgress?.('Triggering site rebuild...');
-  const workflowTriggered = await triggerWorkflow(token);
-
-  if (!workflowTriggered) {
-    return {
-      success: true,
-      commitSha: lastCommitSha,
-      workflowTriggered: false,
-      error: 'Files uploaded but failed to trigger rebuild. Manual rebuild may be needed.',
-    };
-  }
+  // Build commit URL
+  const commitUrl = lastCommitSha
+    ? `https://github.com/${REPO_CONFIG.owner}/${REPO_CONFIG.repo}/commit/${lastCommitSha}`
+    : undefined;
 
   return {
     success: true,
     commitSha: lastCommitSha,
-    workflowTriggered: true,
+    commitUrl,
   };
-}
-
-/**
- * Get repository sync status (last commit info)
- */
-export async function getLastCommitInfo(token: string): Promise<{
-  success: boolean;
-  data?: {
-    sha: string;
-    message: string;
-    date: string;
-    author: string;
-  };
-  error?: string;
-}> {
-  try {
-    const response = await fetch(
-      `https://api.github.com/repos/${REPO_CONFIG.owner}/${REPO_CONFIG.repo}/commits?path=src/data&per_page=1`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      }
-    );
-
-    if (!response.ok) {
-      return { success: false, error: 'Failed to fetch commit info' };
-    }
-
-    const commits = await response.json();
-    if (commits.length === 0) {
-      return { success: true, data: undefined };
-    }
-
-    const latest = commits[0];
-    return {
-      success: true,
-      data: {
-        sha: latest.sha.substring(0, 7),
-        message: latest.commit.message,
-        date: latest.commit.committer.date,
-        author: latest.commit.author?.login || latest.commit.committer.name,
-      },
-    };
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-    return { success: false, error: errorMessage };
-  }
 }
 
 /**
@@ -338,32 +250,14 @@ export async function validateToken(token: string): Promise<{
 }
 
 /**
- * Get stored last sync info from localStorage
+ * Get repository info
  */
-export function getLastSyncInfo(): {
-  timestamp: string | null;
-  commitSha: string | null;
-} {
-  try {
-    const data = localStorage.getItem('repo_sync_info');
-    if (data) {
-      return JSON.parse(data);
-    }
-  } catch {
-    // ignore
-  }
-  return { timestamp: null, commitSha: null };
-}
-
-/**
- * Save last sync info to localStorage
- */
-export function saveLastSyncInfo(commitSha: string): void {
-  localStorage.setItem(
-    'repo_sync_info',
-    JSON.stringify({
-      timestamp: new Date().toISOString(),
-      commitSha,
-    })
-  );
+export function getRepoInfo() {
+  return {
+    owner: REPO_CONFIG.owner,
+    repo: REPO_CONFIG.repo,
+    branch: REPO_CONFIG.branch,
+    url: `https://github.com/${REPO_CONFIG.owner}/${REPO_CONFIG.repo}`,
+    actionsUrl: `https://github.com/${REPO_CONFIG.owner}/${REPO_CONFIG.repo}/actions`,
+  };
 }

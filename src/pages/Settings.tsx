@@ -1,13 +1,8 @@
 import { useState, useEffect } from 'react';
 import {
-  Trash2,
   Download,
-  Upload,
-  AlertTriangle,
   Info,
   Keyboard,
-  Cloud,
-  History,
   Smartphone,
   HardDrive,
   RefreshCw,
@@ -17,17 +12,16 @@ import {
   EyeOff,
   Loader2,
   ExternalLink,
+  Plus,
+  Minus,
+  Edit3,
 } from 'lucide-react';
-import { storageEnhanced, gistSync } from '../lib/storage-enhanced';
-import {
-  syncToRepository,
-  validateToken,
-  getLastSyncInfo,
-  saveLastSyncInfo,
-} from '../lib/repoSync';
+import { useData } from '../lib/DataContext';
+import { syncToRepository, validateToken, getRepoInfo } from '../lib/repoSync';
 
 export function Settings() {
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const { data, getChangelog, resetToPublished, exportForPublish } = useData();
+  
   const [message, setMessage] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
@@ -44,24 +38,16 @@ export function Settings() {
   const [syncProgress, setSyncProgress] = useState<string | null>(null);
   const [tokenUser, setTokenUser] = useState<string | null>(null);
   const [isValidatingToken, setIsValidatingToken] = useState(false);
+  const [showChangelog, setShowChangelog] = useState(false);
 
-  // Sync stats
-  const syncStats = {
-    prompts: storageEnhanced.prompts.getAll().length,
-    notes: storageEnhanced.notes.getAll().length,
-    snippets: storageEnhanced.snippets.getAll().length,
-    resources: storageEnhanced.resources.getAll().length,
-  };
-
-  const lastSyncInfo = getLastSyncInfo();
+  const repoInfo = getRepoInfo();
+  const changelog = getChangelog();
 
   useEffect(() => {
-    // Check PWA status
     if (window.matchMedia('(display-mode: standalone)').matches) {
       setIsPWAInstalled(true);
     }
 
-    // Check service worker
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistration().then((reg) => {
         setSwStatus(reg ? 'active' : 'none');
@@ -72,8 +58,8 @@ export function Settings() {
   }, []);
 
   const handleExport = () => {
-    const data = storageEnhanced.exportAll();
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
+    const dataExport = exportForPublish();
+    const blob = new Blob([JSON.stringify(dataExport, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
@@ -86,39 +72,6 @@ export function Settings() {
     URL.revokeObjectURL(url);
     setMessage({ type: 'success', text: 'Backup exported successfully!' });
     setTimeout(() => setMessage(null), 3000);
-  };
-
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target?.result as string);
-        if (!confirm('This will REPLACE all current data. Continue?')) return;
-        storageEnhanced.importAll(data);
-        setMessage({
-          type: 'success',
-          text: 'Import successful! Refreshing...',
-        });
-        setTimeout(() => window.location.reload(), 1500);
-      } catch {
-        setMessage({ type: 'error', text: 'Invalid backup file format' });
-        setTimeout(() => setMessage(null), 3000);
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const handleClear = () => {
-    storageEnhanced.clearAll();
-    setShowClearConfirm(false);
-    setMessage({
-      type: 'success',
-      text: 'All data cleared. Refreshing...',
-    });
-    setTimeout(() => window.location.reload(), 1500);
   };
 
   const handleClearCache = async () => {
@@ -159,10 +112,14 @@ export function Settings() {
       return;
     }
 
+    if (!changelog.hasChanges) {
+      setMessage({ type: 'info', text: 'No changes to publish' });
+      return;
+    }
+
     setIsSyncing(true);
     setSyncProgress('Validating token...');
 
-    // Validate token first
     const tokenResult = await validateToken(githubToken);
     if (!tokenResult.valid) {
       setMessage({
@@ -177,38 +134,26 @@ export function Settings() {
     setSyncProgress('Preparing data...');
 
     try {
-      // Get all data
-      const data = {
-        prompts: storageEnhanced.prompts.getAll(),
-        notes: storageEnhanced.notes.getAll(),
-        snippets: storageEnhanced.snippets.getAll(),
-        resources: storageEnhanced.resources.getAll(),
-      };
-
+      const exportData = exportForPublish();
       const result = await syncToRepository(
-        data,
+        exportData,
         githubToken,
         (status) => setSyncProgress(status)
       );
 
       if (result.success) {
-        if (result.commitSha) {
-          saveLastSyncInfo(result.commitSha);
-        }
-
-        // Clear localStorage after successful publish
-        storageEnhanced.resetToInitial();
-
         setMessage({
           type: 'success',
-          text: result.workflowTriggered
-            ? 'Published! Site rebuilding in 2-3 minutes...'
-            : 'Published! Manual rebuild may be needed.',
+          text: `Published! Site rebuilding in 2-3 minutes. ${result.commitUrl ? `Commit: ${result.commitSha}` : ''}`,
         });
 
         // Clear token after successful publish
         setGithubToken('');
         setTokenUser(null);
+        setShowChangelog(false);
+        
+        // Reset to show new published state
+        window.location.reload();
       } else {
         setMessage({
           type: 'error',
@@ -229,13 +174,11 @@ export function Settings() {
   };
 
   const stats = {
-    prompts: storageEnhanced.prompts.getAll().length,
-    notes: storageEnhanced.notes.getAll().length,
-    snippets: storageEnhanced.snippets.getAll().length,
-    resources: storageEnhanced.resources.getAll().length,
+    prompts: data.prompts.length,
+    notes: data.notes.length,
+    snippets: data.snippets.length,
+    resources: data.resources.length,
   };
-
-  const gistConfig = gistSync.getConfig();
 
   const totalSize = () => {
     let size = 0;
@@ -247,9 +190,26 @@ export function Settings() {
     return (size / 1024).toFixed(2);
   };
 
-  const historyCount = () => {
-    const history = localStorage.getItem('pentest_history');
-    return history ? JSON.parse(history).length : 0;
+  const getChangeIcon = (type: 'added' | 'modified' | 'deleted') => {
+    switch (type) {
+      case 'added':
+        return <Plus className="h-3 w-3 text-emerald-400" />;
+      case 'modified':
+        return <Edit3 className="h-3 w-3 text-amber-400" />;
+      case 'deleted':
+        return <Minus className="h-3 w-3 text-red-400" />;
+    }
+  };
+
+  const getChangeColor = (type: 'added' | 'modified' | 'deleted') => {
+    switch (type) {
+      case 'added':
+        return 'text-emerald-400';
+      case 'modified':
+        return 'text-amber-400';
+      case 'deleted':
+        return 'text-red-400';
+    }
   };
 
   return (
@@ -284,163 +244,296 @@ export function Settings() {
           </h2>
         </div>
 
-        <div className="space-y-4">
-          {/* Data to sync */}
-          <div className="rounded-lg bg-zinc-800/50 p-4">
-            <p className="mb-3 text-sm font-medium text-zinc-300">
-              Data to publish:
-            </p>
-            <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-              <div className="flex items-center gap-2 rounded bg-zinc-700/50 px-3 py-2">
-                <Check className="h-4 w-4 text-emerald-400" />
-                <span className="text-zinc-300">
-                  Notes ({syncStats.notes})
-                </span>
-              </div>
-              <div className="flex items-center gap-2 rounded bg-zinc-700/50 px-3 py-2">
-                <Check className="h-4 w-4 text-emerald-400" />
-                <span className="text-zinc-300">
-                  Prompts ({syncStats.prompts})
-                </span>
-              </div>
-              <div className="flex items-center gap-2 rounded bg-zinc-700/50 px-3 py-2">
-                <Check className="h-4 w-4 text-emerald-400" />
-                <span className="text-zinc-300">
-                  Snippets ({syncStats.snippets})
-                </span>
-              </div>
-              <div className="flex items-center gap-2 rounded bg-zinc-700/50 px-3 py-2">
-                <Check className="h-4 w-4 text-emerald-400" />
-                <span className="text-zinc-300">
-                  Resources ({syncStats.resources})
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Token input */}
-          <div>
-            <label className="mb-2 block text-sm font-medium text-zinc-300">
-              GitHub Personal Access Token
-            </label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <input
-                  type={showToken ? 'text' : 'password'}
-                  value={githubToken}
-                  onChange={(e) => {
-                    setGithubToken(e.target.value);
-                    setTokenUser(null);
-                  }}
-                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                  className="w-full rounded-lg bg-zinc-800 py-2 pl-3 pr-10 font-mono text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowToken(!showToken)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
-                >
-                  {showToken ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
-                </button>
-              </div>
-              <button
-                onClick={handleValidateToken}
-                disabled={!githubToken.trim() || isValidatingToken}
-                className="flex items-center gap-2 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-600 disabled:opacity-50"
-              >
-                {isValidatingToken ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Check className="h-4 w-4" />
-                )}
-                Verify
-              </button>
-            </div>
-            {tokenUser && (
-              <p className="mt-1 text-xs text-emerald-400">
-                ✓ Authenticated as @{tokenUser}
-              </p>
-            )}
-            <p className="mt-2 text-xs text-zinc-500">
-              Token needs{' '}
-              <code className="rounded bg-zinc-800 px-1 py-0.5">repo</code>{' '}
-              scope. Create at{' '}
-              <a
-                href="https://github.com/settings/tokens/new"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-emerald-400 hover:underline"
-              >
-                github.com/settings/tokens/new
-                <ExternalLink className="ml-1 inline h-3 w-3" />
-              </a>
-            </p>
-          </div>
-
-          {/* Publish button */}
-          <div className="flex items-center gap-4">
+        {/* Changelog Section */}
+        {changelog.hasChanges && (
+          <div className="mb-4 rounded-lg bg-zinc-800/50 p-4">
             <button
-              onClick={handlePublish}
-              disabled={isSyncing || !githubToken.trim()}
-              className="flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              onClick={() => setShowChangelog(!showChangelog)}
+              className="flex w-full items-center justify-between text-left"
             >
-              {isSyncing ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Publishing...
-                </>
-              ) : (
-                <>
-                  <Rocket className="h-4 w-4" />
-                  Publish & Rebuild
-                </>
-              )}
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-zinc-300">
+                  Changes to publish:
+                </span>
+                <div className="flex gap-2 text-xs">
+                  {changelog.summary.added > 0 && (
+                    <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-emerald-400">
+                      +{changelog.summary.added} added
+                    </span>
+                  )}
+                  {changelog.summary.modified > 0 && (
+                    <span className="rounded bg-amber-500/20 px-2 py-0.5 text-amber-400">
+                      ~{changelog.summary.modified} modified
+                    </span>
+                  )}
+                  {changelog.summary.deleted > 0 && (
+                    <span className="rounded bg-red-500/20 px-2 py-0.5 text-red-400">
+                      -{changelog.summary.deleted} deleted
+                    </span>
+                  )}
+                </div>
+              </div>
+              <RefreshCw
+                className={`h-4 w-4 text-zinc-500 transition-transform ${
+                  showChangelog ? 'rotate-180' : ''
+                }`}
+              />
             </button>
 
-            {syncProgress && (
-              <span className="text-sm text-zinc-400">{syncProgress}</span>
+            {showChangelog && (
+              <div className="mt-3 space-y-3 border-t border-zinc-700 pt-3">
+                {/* Prompts changes */}
+                {changelog.prompts.length > 0 && (
+                  <div>
+                    <h4 className="mb-1 text-xs font-semibold uppercase text-zinc-500">
+                      Prompts
+                    </h4>
+                    <div className="space-y-1">
+                      {changelog.prompts.map((change) => (
+                        <div
+                          key={change.id}
+                          className="flex items-center gap-2 text-sm"
+                        >
+                          {getChangeIcon(change.type)}
+                          <span className="text-zinc-300">{change.title}</span>
+                          <span className={`text-xs ${getChangeColor(change.type)}`}>
+                            ({change.type})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Notes changes */}
+                {changelog.notes.length > 0 && (
+                  <div>
+                    <h4 className="mb-1 text-xs font-semibold uppercase text-zinc-500">
+                      Notes
+                    </h4>
+                    <div className="space-y-1">
+                      {changelog.notes.map((change) => (
+                        <div
+                          key={change.id}
+                          className="flex items-center gap-2 text-sm"
+                        >
+                          {getChangeIcon(change.type)}
+                          <span className="text-zinc-300">{change.title}</span>
+                          {change.category && (
+                            <span className="text-xs text-zinc-500">
+                              [{change.category}]
+                            </span>
+                          )}
+                          <span className={`text-xs ${getChangeColor(change.type)}`}>
+                            ({change.type})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Snippets changes */}
+                {changelog.snippets.length > 0 && (
+                  <div>
+                    <h4 className="mb-1 text-xs font-semibold uppercase text-zinc-500">
+                      Snippets
+                    </h4>
+                    <div className="space-y-1">
+                      {changelog.snippets.map((change) => (
+                        <div
+                          key={change.id}
+                          className="flex items-center gap-2 text-sm"
+                        >
+                          {getChangeIcon(change.type)}
+                          <span className="text-zinc-300">{change.title}</span>
+                          <span className={`text-xs ${getChangeColor(change.type)}`}>
+                            ({change.type})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Resources changes */}
+                {changelog.resources.length > 0 && (
+                  <div>
+                    <h4 className="mb-1 text-xs font-semibold uppercase text-zinc-500">
+                      Resources
+                    </h4>
+                    <div className="space-y-1">
+                      {changelog.resources.map((change) => (
+                        <div
+                          key={change.id}
+                          className="flex items-center gap-2 text-sm"
+                        >
+                          {getChangeIcon(change.type)}
+                          <span className="text-zinc-300">{change.title}</span>
+                          <span className={`text-xs ${getChangeColor(change.type)}`}>
+                            ({change.type})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
+        )}
 
-          {/* Last sync info */}
-          <div className="rounded-lg bg-zinc-800/30 p-3 text-xs text-zinc-500">
-            <div className="flex items-center justify-between">
-              <span>
-                Repository:{' '}
-                <a
-                  href="https://github.com/Ariyts/my-notes-app"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-zinc-400 hover:text-emerald-400"
-                >
-                  Ariyts/my-notes-app
-                </a>
-              </span>
-              {lastSyncInfo.timestamp && (
-                <span>
-                  Last publish:{' '}
-                  {new Date(lastSyncInfo.timestamp).toLocaleString()}
-                </span>
-              )}
-            </div>
-            <p className="mt-1">
-              ⚠️ This will update the site for all users. Rebuild takes ~2-3
-              minutes.
-            </p>
+        {!changelog.hasChanges && (
+          <div className="mb-4 rounded-lg bg-zinc-800/30 p-4 text-sm text-zinc-500">
+            ✓ No unsaved changes. Current data matches published version.
           </div>
+        )}
+
+        {/* Current data counts */}
+        <div className="mb-4 rounded-lg bg-zinc-800/50 p-4">
+          <p className="mb-3 text-sm font-medium text-zinc-300">
+            Current data:
+          </p>
+          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+            <div className="flex items-center gap-2 rounded bg-zinc-700/50 px-3 py-2">
+              <span className="text-zinc-300">Notes: {stats.notes}</span>
+            </div>
+            <div className="flex items-center gap-2 rounded bg-zinc-700/50 px-3 py-2">
+              <span className="text-zinc-300">Prompts: {stats.prompts}</span>
+            </div>
+            <div className="flex items-center gap-2 rounded bg-zinc-700/50 px-3 py-2">
+              <span className="text-zinc-300">Snippets: {stats.snippets}</span>
+            </div>
+            <div className="flex items-center gap-2 rounded bg-zinc-700/50 px-3 py-2">
+              <span className="text-zinc-300">Resources: {stats.resources}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Token input */}
+        <div className="mb-4">
+          <label className="mb-2 block text-sm font-medium text-zinc-300">
+            GitHub Personal Access Token
+          </label>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <input
+                type={showToken ? 'text' : 'password'}
+                value={githubToken}
+                onChange={(e) => {
+                  setGithubToken(e.target.value);
+                  setTokenUser(null);
+                }}
+                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                className="w-full rounded-lg bg-zinc-800 py-2 pl-3 pr-10 font-mono text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowToken(!showToken)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+              >
+                {showToken ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+            <button
+              onClick={handleValidateToken}
+              disabled={!githubToken.trim() || isValidatingToken}
+              className="flex items-center gap-2 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-600 disabled:opacity-50"
+            >
+              {isValidatingToken ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="h-4 w-4" />
+              )}
+              Verify
+            </button>
+          </div>
+          {tokenUser && (
+            <p className="mt-1 text-xs text-emerald-400">
+              ✓ Authenticated as @{tokenUser}
+            </p>
+          )}
+          <p className="mt-2 text-xs text-zinc-500">
+            Token needs{' '}
+            <code className="rounded bg-zinc-800 px-1 py-0.5">repo</code>{' '}
+            scope. Create at{' '}
+            <a
+              href="https://github.com/settings/tokens/new"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-400 hover:underline"
+            >
+              github.com/settings/tokens/new
+              <ExternalLink className="ml-1 inline h-3 w-3" />
+            </a>
+          </p>
+        </div>
+
+        {/* Publish button */}
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handlePublish}
+            disabled={isSyncing || !githubToken.trim() || !changelog.hasChanges}
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+          >
+            {isSyncing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Publishing...
+              </>
+            ) : (
+              <>
+                <Rocket className="h-4 w-4" />
+                Publish & Rebuild
+              </>
+            )}
+          </button>
+
+          {syncProgress && (
+            <span className="text-sm text-zinc-400">{syncProgress}</span>
+          )}
+
+          <button
+            onClick={resetToPublished}
+            className="flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-400 hover:bg-zinc-800"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Reset Changes
+          </button>
+        </div>
+
+        {/* Repo info */}
+        <div className="mt-4 rounded-lg bg-zinc-800/30 p-3 text-xs text-zinc-500">
+          <div className="flex items-center justify-between">
+            <span>
+              Repository:{' '}
+              <a
+                href={repoInfo.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-zinc-400 hover:text-emerald-400"
+              >
+                {repoInfo.owner}/{repoInfo.repo}
+              </a>
+            </span>
+          </div>
+          <p className="mt-1">
+            ⚠️ This will update the site for all users. Rebuild takes ~2-3
+            minutes.
+          </p>
         </div>
       </div>
 
       {/* Stats */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
         <h2 className="mb-4 text-lg font-semibold text-zinc-100">
-          Storage Statistics
+          Data Statistics
         </h2>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div className="rounded-lg bg-zinc-800 p-4 text-center">
             <div className="text-2xl font-bold text-emerald-400">
               {stats.prompts}
@@ -463,21 +556,15 @@ export function Settings() {
             </div>
             <div className="text-sm text-zinc-400">Resources</div>
           </div>
-          <div className="rounded-lg bg-zinc-800 p-4 text-center">
-            <div className="text-2xl font-bold text-pink-400">
-              {historyCount()}
-            </div>
-            <div className="text-sm text-zinc-400">Versions</div>
-          </div>
         </div>
         <div className="mt-4 flex items-center justify-between text-sm text-zinc-500">
           <span>
-            Total storage used:{' '}
+            Local storage used:{' '}
             <span className="text-zinc-300">{totalSize()} KB</span>
           </span>
           <span className="flex items-center gap-2">
             <HardDrive className="h-4 w-4" />
-            localStorage
+            preferences only
           </span>
         </div>
       </div>
@@ -534,69 +621,6 @@ export function Settings() {
         )}
       </div>
 
-      {/* Gist Sync Status */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <Cloud className="h-5 w-5 text-blue-400" />
-          <h2 className="text-lg font-semibold text-zinc-100">
-            GitHub Gist Sync
-          </h2>
-        </div>
-        <div className="rounded-lg bg-zinc-800 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="text-zinc-300">
-                {gistConfig.gistId ? 'Connected' : 'Not connected'}
-              </span>
-              {gistConfig.lastSync && (
-                <p className="text-xs text-zinc-500">
-                  Last sync: {new Date(gistConfig.lastSync).toLocaleString()}
-                </p>
-              )}
-            </div>
-            {gistConfig.gistId ? (
-              <span className="flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1 text-sm text-emerald-400">
-                <Check className="h-4 w-4" /> Synced
-              </span>
-            ) : (
-              <span className="text-sm text-zinc-500">
-                Configure in sidebar
-              </span>
-            )}
-          </div>
-        </div>
-        <p className="mt-3 text-xs text-zinc-600">
-          Sync your encrypted data to a private GitHub Gist for backup and
-          cross-device access.
-        </p>
-      </div>
-
-      {/* Version History */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <History className="h-5 w-5 text-purple-400" />
-          <h2 className="text-lg font-semibold text-zinc-100">
-            Version History
-          </h2>
-        </div>
-        <p className="text-sm text-zinc-400">
-          Pentest Hub automatically saves previous versions of your notes and
-          prompts when you edit them. You can restore any previous version from
-          the History panel.
-        </p>
-        <div className="mt-4 rounded-lg bg-zinc-800 p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-zinc-300">Saved versions</span>
-            <span className="text-xl font-bold text-purple-400">
-              {historyCount()}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-zinc-500">
-            Up to 50 versions per item are kept
-          </p>
-        </div>
-      </div>
-
       {/* Keyboard Shortcuts */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
         <div className="mb-4 flex items-center gap-2">
@@ -607,10 +631,9 @@ export function Settings() {
         </div>
         <div className="grid gap-2">
           {[
-            { keys: '⌘/Ctrl + K', action: 'Open global search' },
-            { keys: '⌘/Ctrl + S', action: 'Save current note' },
+            { keys: 'Ctrl + K', action: 'Open global search' },
+            { keys: 'Ctrl + S', action: 'Save current note' },
             { keys: 'Escape', action: 'Close modal / search' },
-            { keys: 'Drag handle', action: 'Reorder prompts' },
           ].map((shortcut) => (
             <div
               key={shortcut.keys}
@@ -638,60 +661,11 @@ export function Settings() {
             <Download className="h-4 w-4" />
             Export JSON Backup
           </button>
-          <label className="flex cursor-pointer items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium hover:bg-blue-500">
-            <Upload className="h-4 w-4" />
-            Import Backup
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleImport}
-              className="hidden"
-            />
-          </label>
         </div>
         <p className="mt-3 text-sm text-zinc-500">
-          Export your data as JSON for backup or transfer to another device.
-          Includes prompts, notes, snippets, resources, and custom order.
+          Export current session data as JSON. Note: Data is only stored in
+          memory and will be lost when you close the page unless published.
         </p>
-      </div>
-
-      {/* Danger Zone */}
-      <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6">
-        <div className="mb-4 flex items-center gap-2 text-red-400">
-          <AlertTriangle className="h-5 w-5" />
-          <h2 className="text-lg font-semibold">Danger Zone</h2>
-        </div>
-
-        {showClearConfirm ? (
-          <div className="rounded-lg bg-red-500/10 p-4">
-            <p className="mb-4 text-zinc-300">
-              This will permanently delete ALL your prompts, notes, snippets,
-              resources, and version history. This action cannot be undone.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={handleClear}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium hover:bg-red-500"
-              >
-                Yes, Delete Everything
-              </button>
-              <button
-                onClick={() => setShowClearConfirm(false)}
-                className="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium hover:bg-zinc-600"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={() => setShowClearConfirm(true)}
-            className="flex items-center gap-2 rounded-lg border border-red-500/50 bg-transparent px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/10"
-          >
-            <Trash2 className="h-4 w-4" />
-            Clear All Data
-          </button>
-        )}
       </div>
 
       {/* About */}
@@ -703,16 +677,15 @@ export function Settings() {
         <p className="mt-3 text-sm text-zinc-400">
           Pentest Hub — Personal penetration testing knowledge base.
           <br />
-          All data is stored locally in your browser with optional encrypted
-          cloud sync.
+          Data is stored in memory during session. Use Repository Sync to
+          publish changes for all users.
         </p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs text-zinc-600">
-          <span className="rounded bg-zinc-800 px-2 py-1">Version 2.1.0</span>
+          <span className="rounded bg-zinc-800 px-2 py-1">Version 3.0.0</span>
           <span className="rounded bg-zinc-800 px-2 py-1">PWA Ready</span>
-          <span className="rounded bg-zinc-800 px-2 py-1">Offline Support</span>
-          <span className="rounded bg-zinc-800 px-2 py-1">Gist Sync</span>
-          <span className="rounded bg-zinc-800 px-2 py-1">Version History</span>
+          <span className="rounded bg-zinc-800 px-2 py-1">Memory Storage</span>
           <span className="rounded bg-zinc-800 px-2 py-1">Repo Sync</span>
+          <span className="rounded bg-zinc-800 px-2 py-1">Changelog</span>
         </div>
       </div>
     </div>

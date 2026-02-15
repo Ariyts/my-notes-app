@@ -6,9 +6,10 @@ import { GlobalSearch } from './GlobalSearch';
 import { ExportImport } from './ExportImport';
 import { GistSync } from './GistSync';
 import { ExportPanel } from './ExportPanel';
-import { storageEnhanced } from '../lib/storage-enhanced';
+import { useData } from '../lib/DataContext';
 
 export function Layout() {
+  const { data } = useData();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isGistOpen, setIsGistOpen] = useState(false);
@@ -37,22 +38,11 @@ export function Layout() {
 
   // Update stats in sidebar
   useEffect(() => {
-    const updateStats = () => {
-      const promptsEl = document.getElementById('stat-prompts');
-      const notesEl = document.getElementById('stat-notes');
-      if (promptsEl) promptsEl.textContent = String(storageEnhanced.prompts.getAll().length);
-      if (notesEl) notesEl.textContent = String(storageEnhanced.notes.getAll().length);
-    };
-    updateStats();
-    
-    // Update on storage change
-    window.addEventListener('storage', updateStats);
-    const interval = setInterval(updateStats, 2000);
-    return () => {
-      window.removeEventListener('storage', updateStats);
-      clearInterval(interval);
-    };
-  }, []);
+    const promptsEl = document.getElementById('stat-prompts');
+    const notesEl = document.getElementById('stat-notes');
+    if (promptsEl) promptsEl.textContent = String(data.prompts.length);
+    if (notesEl) notesEl.textContent = String(data.notes.length);
+  }, [data.prompts.length, data.notes.length]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 lg:flex-row">

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { Plus, Search, Copy, Check, Terminal, Trash2, Edit2, ChevronDown, Filter } from 'lucide-react';
-import { storage } from '../lib/storage';
+import { useData } from '../lib/DataContext';
 import { Snippet } from '../types';
 import { cn } from '../utils/cn';
 
@@ -25,20 +25,15 @@ const getToolStyle = (tool: string) => {
 };
 
 export function Snippets() {
-  const [snippets, setSnippets] = useState<Snippet[]>([]);
+  const { snippets: snippetsApi, data } = useData();
+  const snippets = data.snippets;
+  
   const [search, setSearch] = useState('');
   const [filterTool, setFilterTool] = useState('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState<Snippet | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['all']));
-
-  useEffect(() => {
-    const loaded = storage.snippets.getAll();
-    setSnippets(loaded);
-    // Expand all tools by default
-    setExpandedGroups(new Set(loaded.map(s => s.tool.toLowerCase())));
-  }, []);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -48,8 +43,7 @@ export function Snippets() {
 
   const handleDelete = (id: string) => {
     if (confirm('Delete this snippet?')) {
-      storage.snippets.delete(id);
-      setSnippets(storage.snippets.getAll());
+      snippetsApi.delete(id);
     }
   };
 
@@ -67,12 +61,11 @@ export function Snippets() {
     };
 
     if (isEditing) {
-      storage.snippets.update(isEditing.id, data);
+      snippetsApi.update(isEditing.id, data);
     } else {
-      storage.snippets.add(data);
+      snippetsApi.add(data);
     }
 
-    setSnippets(storage.snippets.getAll());
     setIsEditing(null);
     setIsCreating(false);
   };
@@ -89,23 +82,24 @@ export function Snippets() {
     });
   };
 
-  const filteredSnippets = snippets.filter(s => {
+  const filteredSnippets = useMemo(() => snippets.filter(s => {
     const matchesSearch = s.title.toLowerCase().includes(search.toLowerCase()) || 
                           s.tool.toLowerCase().includes(search.toLowerCase()) ||
                           s.command.toLowerCase().includes(search.toLowerCase());
     const matchesTool = filterTool === 'all' || s.tool.toLowerCase() === filterTool.toLowerCase();
     return matchesSearch && matchesTool;
-  });
+  }), [snippets, search, filterTool]);
 
   // Group by tool
-  const groupedSnippets = filteredSnippets.reduce((acc, snippet) => {
-    const tool = snippet.tool.toLowerCase();
-    if (!acc[tool]) acc[tool] = [];
-    acc[tool].push(snippet);
-    return acc;
-  }, {} as Record<string, Snippet[]>);
+  const groupedSnippets = useMemo(() => {
+    return filteredSnippets.reduce((acc, snippet) => {
+      const tool = snippet.tool.toLowerCase();
+      if (!acc[tool]) acc[tool] = [];
+      acc[tool].push(snippet);
+      return acc;
+    }, {} as Record<string, Snippet[]>);
+  }, [filteredSnippets]);
 
-  // Get unique tools for filter
   const allTools = [...new Set(snippets.map(s => s.tool.toLowerCase()))].sort();
 
   return (

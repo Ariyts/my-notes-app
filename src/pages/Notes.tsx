@@ -1,17 +1,16 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { 
-  Plus, Search, Save, Trash2, FileText, Folder, FolderOpen,
+  Plus, Search, Trash2, FileText, Folder, FolderOpen,
   Edit3, Eye, ChevronRight, ChevronDown, Copy, Check, Columns,
-  History, FileCode, LayoutTemplate
+  FileCode, LayoutTemplate
 } from 'lucide-react';
-import { storageEnhanced } from '../lib/storage-enhanced';
+import { useData } from '../lib/DataContext';
 import { Note } from '../types';
 import { cn } from '../utils/cn';
-import { HistoryPanel } from '../components/HistoryPanel';
 import { TemplateSelector } from '../components/TemplateSelector';
 import { NoteTemplate } from '../lib/templates';
 
@@ -38,15 +37,16 @@ const PREDEFINED_CATEGORIES = [
 ];
 
 export function Notes() {
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes: notesApi, data } = useData();
+  const notes = data.notes;
+  
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'view' | 'edit' | 'split'>('split');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
   
-  // Modals
-  const [showHistory, setShowHistory] = useState(false);
+  // Modal
   const [showTemplates, setShowTemplates] = useState(false);
   
   // Form state for editing
@@ -56,21 +56,13 @@ export function Notes() {
   const [editTags, setEditTags] = useState('');
   const [hasUnsaved, setHasUnsaved] = useState(false);
 
-  const fetchNotes = async () => {
-    const loadedNotes = await storageEnhanced.notes.getAll();
-    setNotes(loadedNotes);
-    
-    // Expand all root categories
-    const roots = new Set(loadedNotes.map(n => n.category.split('/')[0]));
-    setExpandedFolders(roots);
-    
-    if (loadedNotes.length > 0 && !selectedNoteId) {
-      selectNote(loadedNotes[0]);
-    }
-  };
-
+  // Initialize with first note and expand folders
   useEffect(() => {
-    fetchNotes();
+    if (notes.length > 0 && !selectedNoteId) {
+      const roots = new Set(notes.map(n => n.category.split('/')[0]));
+      setExpandedFolders(roots);
+      selectNote(notes[0]);
+    }
   }, []);
 
   const selectNote = (note: Note) => {
@@ -93,43 +85,41 @@ export function Notes() {
     setShowTemplates(true);
   };
 
-  const handleCreateFromTemplate = async (template: NoteTemplate) => {
-    const newNote = await storageEnhanced.notes.add({
+  const handleCreateFromTemplate = (template: NoteTemplate) => {
+    const newNote = notesApi.add({
       title: template.name,
       category: template.category,
       content: template.content,
       tags: []
     });
-    await fetchNotes();
     selectNote(newNote);
     setViewMode('edit');
+    setShowTemplates(false);
   };
 
-  const handleCreateBlank = async () => {
-    const newNote = await storageEnhanced.notes.add({
+  const handleCreateBlank = () => {
+    const newNote = notesApi.add({
       title: 'Untitled Note',
       category: 'Methodology/General',
       content: '# New Note\n\nStart writing your notes here...\n\n## Example Section\n\n```bash\necho "Hello World"\n```',
       tags: []
     });
-    await fetchNotes();
     selectNote(newNote);
     setViewMode('edit');
   };
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(() => {
     if (!selectedNoteId) return;
     
-    await storageEnhanced.notes.update(selectedNoteId, {
+    notesApi.update(selectedNoteId, {
       title: editTitle,
       category: editCategory,
       content: editContent,
       tags: editTags.split(',').map(t => t.trim()).filter(Boolean)
     });
     
-    await fetchNotes();
     setHasUnsaved(false);
-  }, [selectedNoteId, editTitle, editCategory, editContent, editTags]);
+  }, [selectedNoteId, editTitle, editCategory, editContent, editTags, notesApi]);
 
   // Ctrl+S to save
   useEffect(() => {
@@ -143,15 +133,14 @@ export function Notes() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleSave]);
 
-  const handleDelete = async () => {
-    if (!selectedNoteId || !confirm('Delete this note permanently?')) return;
+  const handleDelete = () => {
+    if (!selectedNoteId || !confirm('Delete this note?')) return;
     
-    await storageEnhanced.notes.delete(selectedNoteId);
-    const updatedNotes = await storageEnhanced.notes.getAll();
-    setNotes(updatedNotes);
+    notesApi.delete(selectedNoteId);
     
-    if (updatedNotes.length > 0) {
-      selectNote(updatedNotes[0]);
+    const remainingNotes = notes.filter(n => n.id !== selectedNoteId);
+    if (remainingNotes.length > 0) {
+      selectNote(remainingNotes[0]);
     } else {
       setSelectedNoteId(null);
     }
@@ -161,12 +150,6 @@ export function Notes() {
     navigator.clipboard.writeText(editContent);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleRestoreVersion = (content: string, title: string) => {
-    setEditContent(content);
-    setEditTitle(title);
-    setHasUnsaved(true);
   };
 
   const toggleFolder = (folder: string) => {
@@ -181,36 +164,32 @@ export function Notes() {
     });
   };
 
-  const filteredNotes = notes.filter(n => 
-    n.title.toLowerCase().includes(search.toLowerCase()) || 
-    n.category.toLowerCase().includes(search.toLowerCase()) ||
-    n.content.toLowerCase().includes(search.toLowerCase())
+  const filteredNotes = useMemo(() => 
+    notes.filter(n => 
+      n.title.toLowerCase().includes(search.toLowerCase()) || 
+      n.category.toLowerCase().includes(search.toLowerCase()) ||
+      n.content.toLowerCase().includes(search.toLowerCase())
+    ), [notes, search]
   );
 
   // Build tree structure
-  const buildTree = () => {
-    const tree: Record<string, Record<string, Note[]>> = {};
+  const tree = useMemo(() => {
+    const treeObj: Record<string, Record<string, Note[]>> = {};
     
     filteredNotes.forEach(note => {
       const parts = note.category.split('/');
       const root = parts[0] || 'Uncategorized';
       const sub = parts.slice(1).join('/') || '_root';
       
-      if (!tree[root]) tree[root] = {};
-      if (!tree[root][sub]) tree[root][sub] = [];
-      tree[root][sub].push(note);
+      if (!treeObj[root]) treeObj[root] = {};
+      if (!treeObj[root][sub]) treeObj[root][sub] = [];
+      treeObj[root][sub].push(note);
     });
     
-    return tree;
-  };
+    return treeObj;
+  }, [filteredNotes]);
 
-  const tree = buildTree();
   const selectedNote = notes.find(n => n.id === selectedNoteId);
-  
-  // Get version count for current note
-  const versionCount = selectedNoteId 
-    ? storageEnhanced.history.getForItem(selectedNoteId).length 
-    : 0;
 
   return (
     <div className="flex h-[calc(100vh-5rem)] gap-4">
@@ -385,24 +364,6 @@ export function Notes() {
                   </button>
                 </div>
 
-                {/* History button */}
-                <button 
-                  onClick={() => setShowHistory(true)}
-                  className={cn(
-                    "rounded-lg p-2 transition-colors",
-                    versionCount > 0 
-                      ? "text-purple-400 hover:bg-purple-500/10" 
-                      : "text-zinc-600"
-                  )}
-                  title={`Version History (${versionCount})`}
-                  disabled={versionCount === 0}
-                >
-                  <History className="h-4 w-4" />
-                  {versionCount > 0 && (
-                    <span className="absolute -top-1 -right-1 text-[10px]">{versionCount}</span>
-                  )}
-                </button>
-
                 <button 
                   onClick={handleCopyContent}
                   className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
@@ -421,7 +382,6 @@ export function Notes() {
                       : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
                   )}
                 >
-                  <Save className="h-4 w-4" />
                   Save
                 </button>
                 
@@ -549,14 +509,6 @@ export function Notes() {
       </div>
 
       {/* Modals */}
-      <HistoryPanel
-        isOpen={showHistory}
-        onClose={() => setShowHistory(false)}
-        itemId={selectedNoteId || ''}
-        itemType="note"
-        onRestore={handleRestoreVersion}
-      />
-      
       <TemplateSelector
         isOpen={showTemplates}
         onClose={() => setShowTemplates(false)}
