@@ -42,7 +42,7 @@
     "categoryField": "category",
     "color": "emerald",
     "isDefault": true,
-    "createdAt": "2026-02-15T18:45:33.355Z"
+    "createdAt": "2026-02-15T19:31:29.649Z"
   },
   {
     "id": "notes",
@@ -77,7 +77,7 @@
     "categoryField": "category",
     "color": "blue",
     "isDefault": true,
-    "createdAt": "2026-02-15T18:45:33.355Z"
+    "createdAt": "2026-02-15T19:31:29.649Z"
   },
   {
     "id": "snippets",
@@ -118,7 +118,7 @@
     "categoryField": "tool",
     "color": "purple",
     "isDefault": true,
-    "createdAt": "2026-02-15T18:45:33.355Z"
+    "createdAt": "2026-02-15T19:31:29.649Z"
   },
   {
     "id": "resources",
@@ -165,7 +165,7 @@
     "categoryField": "category",
     "color": "orange",
     "isDefault": true,
-    "createdAt": "2026-02-15T18:45:33.355Z"
+    "createdAt": "2026-02-15T19:31:29.649Z"
   },
   {
     "name": "4PDA",
