@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -6,13 +6,20 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { 
   Plus, Search, Trash2, FileText, Folder, FolderOpen,
   Edit3, Eye, ChevronRight, ChevronDown, Copy, Check, Columns,
-  FileCode, LayoutTemplate
+  FileCode, LayoutTemplate, Download, Upload, Archive, FileDown, FileUp
 } from 'lucide-react';
 import { useData } from '../lib/DataContext';
 import { Note } from '../types';
 import { cn } from '../utils/cn';
 import { TemplateSelector } from '../components/TemplateSelector';
 import { NoteTemplate } from '../lib/templates';
+import { 
+  createNotesArchive, 
+  importNotesFromFiles, 
+  importNotesFromZip,
+  noteToMarkdown,
+  getNoteFilename
+} from '../lib/obsidianSync';
 
 const PREDEFINED_CATEGORIES = [
   'Web/Recon',
@@ -55,6 +62,11 @@ export function Notes() {
   const [editContent, setEditContent] = useState('');
   const [editTags, setEditTags] = useState('');
   const [hasUnsaved, setHasUnsaved] = useState(false);
+
+  // Import/Export
+  const [showImportExport, setShowImportExport] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize with first note and expand folders
   useEffect(() => {
@@ -152,6 +164,87 @@ export function Notes() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Export all notes as ZIP (Obsidian format)
+  const handleExportAll = async () => {
+    if (notes.length === 0) {
+      setImportStatus('No notes to export');
+      setTimeout(() => setImportStatus(null), 3000);
+      return;
+    }
+
+    try {
+      const blob = await createNotesArchive(notes);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `notes-obsidian-${new Date().toISOString().split('T')[0]}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setImportStatus(`Exported ${notes.length} notes`);
+    } catch (error) {
+      setImportStatus('Export failed');
+    }
+    setTimeout(() => setImportStatus(null), 3000);
+  };
+
+  // Export single note as .md
+  const handleExportCurrent = () => {
+    if (!selectedNote) return;
+
+    const content = noteToMarkdown(selectedNote);
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = getNoteFilename(selectedNote);
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Import notes from files or ZIP
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    try {
+      let importedNotes: Partial<Note>[] = [];
+
+      // Check if it's a ZIP file
+      if (files.length === 1 && files[0].name.endsWith('.zip')) {
+        setImportStatus('Importing from ZIP...');
+        importedNotes = await importNotesFromZip(files[0]);
+      } else {
+        setImportStatus(`Importing ${files.length} file(s)...`);
+        importedNotes = await importNotesFromFiles(files);
+      }
+
+      // Add imported notes
+      let added = 0;
+      for (const note of importedNotes) {
+        if (note.title && note.content) {
+          notesApi.add({
+            title: note.title,
+            category: note.category || 'Imported',
+            content: note.content,
+            tags: note.tags || [],
+          });
+          added++;
+        }
+      }
+
+      setImportStatus(`Imported ${added} note(s)`);
+    } catch (error) {
+      setImportStatus('Import failed');
+    }
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+
+    setTimeout(() => setImportStatus(null), 3000);
+  };
+
   const toggleFolder = (folder: string) => {
     setExpandedFolders(prev => {
       const next = new Set(prev);
@@ -200,6 +293,16 @@ export function Notes() {
             <h2 className="font-semibold text-zinc-100">Notes</h2>
             <div className="flex items-center gap-1">
               <button 
+                onClick={() => setShowImportExport(!showImportExport)}
+                className={cn(
+                  "rounded-lg p-1.5 text-zinc-300 hover:bg-zinc-600",
+                  showImportExport && "bg-zinc-600"
+                )}
+                title="Import/Export"
+              >
+                <Archive className="h-4 w-4" />
+              </button>
+              <button 
                 onClick={handleCreateBlank}
                 className="rounded-lg bg-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-600"
                 title="New Blank Note"
@@ -215,6 +318,56 @@ export function Notes() {
               </button>
             </div>
           </div>
+
+          {/* Import/Export Panel */}
+          {showImportExport && (
+            <div className="mb-3 rounded-lg bg-zinc-800/50 p-3 space-y-2">
+              <div className="text-xs font-medium text-zinc-400 mb-2">Obsidian Sync</div>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={handleExportAll}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-emerald-600/20 border border-emerald-500/30 px-3 py-2 text-xs font-medium text-emerald-400 hover:bg-emerald-600/30"
+                >
+                  <FileDown className="h-3.5 w-3.5" />
+                  Export ZIP
+                </button>
+                <label className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-blue-600/20 border border-blue-500/30 px-3 py-2 text-xs font-medium text-blue-400 hover:bg-blue-600/30 cursor-pointer">
+                  <FileUp className="h-3.5 w-3.5" />
+                  Import
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".md,.zip"
+                    multiple
+                    className="hidden"
+                    onChange={handleImport}
+                  />
+                </label>
+              </div>
+
+              {selectedNote && (
+                <button
+                  onClick={handleExportCurrent}
+                  className="w-full flex items-center justify-center gap-2 rounded-lg bg-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-600"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Export Current Note
+                </button>
+              )}
+
+              {importStatus && (
+                <div className="text-xs text-center text-zinc-400 py-1">
+                  {importStatus}
+                </div>
+              )}
+
+              <div className="text-[10px] text-zinc-500 text-center">
+                Compatible with Obsidian vaults
+              </div>
+            </div>
+          )}
+
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-zinc-500" />
             <input

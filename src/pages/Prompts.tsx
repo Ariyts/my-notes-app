@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, Copy, Tag, Edit2, Trash2, Check, Filter, Grid, List, Star, StarOff, GripVertical } from 'lucide-react';
+import { Plus, Search, Copy, Tag, Edit2, Trash2, Check, Filter, Grid, List, Table2, Star, StarOff, GripVertical } from 'lucide-react';
 import {
   DndContext,
   DragEndEvent,
@@ -35,7 +35,9 @@ const getCategoryStyle = (category: string) => {
   return CATEGORIES.find(c => c.value === category)?.color || CATEGORIES[CATEGORIES.length - 1].color;
 };
 
-// Sortable Prompt Card
+type ViewMode = 'grid' | 'list' | 'table';
+
+// Sortable Prompt Card for Grid/List views
 function SortablePromptCard({ 
   prompt, 
   isFavorite,
@@ -176,13 +178,217 @@ function SortablePromptCard({
   );
 }
 
+// Table Row Component
+function PromptTableRow({
+  prompt,
+  isFavorite,
+  isCopied,
+  onCopy,
+  onEdit,
+  onDelete,
+  onToggleFavorite,
+  onTagClick,
+}: {
+  prompt: Prompt;
+  isFavorite: boolean;
+  isCopied: boolean;
+  onCopy: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onToggleFavorite: () => void;
+  onTagClick: (tag: string) => void;
+}) {
+  return (
+    <tr className="group border-b border-zinc-800 hover:bg-zinc-800/50 transition-colors">
+      <td className="py-2 px-3">
+        <button
+          onClick={onToggleFavorite}
+          className="text-zinc-600 hover:text-amber-400"
+        >
+          {isFavorite 
+            ? <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+            : <StarOff className="h-4 w-4" />
+          }
+        </button>
+      </td>
+      <td className="py-2 px-3">
+        <button
+          onClick={onEdit}
+          className="text-left text-zinc-100 hover:text-emerald-400 font-medium truncate max-w-[300px] block"
+        >
+          {prompt.title}
+        </button>
+      </td>
+      <td className="py-2 px-3">
+        <span className={cn("rounded-md border px-2 py-0.5 text-xs font-medium", getCategoryStyle(prompt.category))}>
+          {prompt.category}
+        </span>
+      </td>
+      <td className="py-2 px-3">
+        <span className="text-zinc-500 text-xs truncate max-w-[200px] block">
+          {prompt.content.substring(0, 50)}...
+        </span>
+      </td>
+      <td className="py-2 px-3">
+        <div className="flex flex-wrap gap-1">
+          {prompt.tags.slice(0, 3).map(tag => (
+            <span
+              key={tag}
+              className="cursor-pointer rounded-full bg-zinc-700 px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-zinc-600"
+              onClick={() => onTagClick(tag)}
+            >
+              {tag}
+            </span>
+          ))}
+          {prompt.tags.length > 3 && (
+            <span className="text-xs text-zinc-500">+{prompt.tags.length - 3}</span>
+          )}
+        </div>
+      </td>
+      <td className="py-2 px-3 text-zinc-500 text-xs whitespace-nowrap">
+        {new Date(prompt.updatedAt).toLocaleDateString()}
+      </td>
+      <td className="py-2 px-3">
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={onCopy}
+            className={cn(
+              "rounded p-1.5 transition-colors",
+              isCopied
+                ? "bg-emerald-500/10 text-emerald-400"
+                : "text-zinc-500 hover:bg-zinc-700 hover:text-emerald-400"
+            )}
+            title="Copy"
+          >
+            {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          </button>
+          <button
+            onClick={onEdit}
+            className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-blue-400"
+            title="Edit"
+          >
+            <Edit2 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={onDelete}
+            className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-red-400"
+            title="Delete"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// Compact List Item
+function PromptCompactItem({
+  prompt,
+  isFavorite,
+  isCopied,
+  onCopy,
+  onEdit,
+  onDelete,
+  onToggleFavorite,
+  onTagClick,
+}: {
+  prompt: Prompt;
+  isFavorite: boolean;
+  isCopied: boolean;
+  onCopy: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onToggleFavorite: () => void;
+  onTagClick: (tag: string) => void;
+}) {
+  return (
+    <div className="group flex items-center gap-3 py-2 px-3 rounded-lg border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50 transition-all">
+      {/* Favorite */}
+      <button
+        onClick={onToggleFavorite}
+        className="shrink-0 text-zinc-600 hover:text-amber-400"
+      >
+        {isFavorite 
+          ? <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+          : <StarOff className="h-4 w-4" />
+        }
+      </button>
+
+      {/* Title */}
+      <button
+        onClick={onEdit}
+        className="text-left text-zinc-100 hover:text-emerald-400 font-medium truncate flex-1"
+      >
+        {prompt.title}
+      </button>
+
+      {/* Category */}
+      <span className={cn("shrink-0 rounded-md border px-2 py-0.5 text-xs font-medium", getCategoryStyle(prompt.category))}>
+        {prompt.category}
+      </span>
+
+      {/* Tags */}
+      <div className="hidden sm:flex flex-wrap gap-1 max-w-[150px]">
+        {prompt.tags.slice(0, 2).map(tag => (
+          <span
+            key={tag}
+            className="cursor-pointer rounded-full bg-zinc-700 px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-zinc-600"
+            onClick={() => onTagClick(tag)}
+          >
+            {tag}
+          </span>
+        ))}
+        {prompt.tags.length > 2 && (
+          <span className="text-xs text-zinc-500">+{prompt.tags.length - 2}</span>
+        )}
+      </div>
+
+      {/* Date */}
+      <span className="hidden md:block text-zinc-500 text-xs whitespace-nowrap">
+        {new Date(prompt.updatedAt).toLocaleDateString()}
+      </span>
+
+      {/* Actions */}
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={onCopy}
+          className={cn(
+            "rounded p-1.5 transition-colors",
+            isCopied
+              ? "bg-emerald-500/10 text-emerald-400"
+              : "text-zinc-500 hover:bg-zinc-700 hover:text-emerald-400"
+          )}
+          title="Copy"
+        >
+          {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          onClick={onEdit}
+          className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-blue-400"
+          title="Edit"
+        >
+          <Edit2 className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={onDelete}
+          className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-red-400"
+          title="Delete"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Prompts() {
   const { prompts: promptsApi, data } = useData();
   const prompts = data.prompts;
   
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+  const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [isEditing, setIsEditing] = useState<Prompt | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -200,9 +406,6 @@ export function Prompts() {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
-
-  // Sync local prompts with data context
-  // (prompts are already in context)
 
   const toggleFavorite = (id: string) => {
     setFavorites(prev => {
@@ -234,7 +437,7 @@ export function Prompts() {
     const formData = new FormData(e.currentTarget);
     const tags = (formData.get('tags') as string).split(',').map(t => t.trim()).filter(Boolean);
     
-    const data = {
+    const saveData = {
       title: formData.get('title') as string,
       category: formData.get('category') as string,
       content: formData.get('content') as string,
@@ -242,9 +445,9 @@ export function Prompts() {
     };
 
     if (isEditing) {
-      promptsApi.update(isEditing.id, data);
+      promptsApi.update(isEditing.id, saveData);
     } else {
-      promptsApi.add(data);
+      promptsApi.add(saveData);
     }
 
     setIsEditing(null);
@@ -252,7 +455,6 @@ export function Prompts() {
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    // Drag reorder is local only - will be saved on publish
     const { active, over } = event;
     if (over && active.id !== over.id) {
       // Reorder logic would go here if needed
@@ -276,13 +478,24 @@ export function Prompts() {
       });
   }, [prompts, search, filter, showFavoritesOnly, favorites]);
 
+  const getPromptProps = (prompt: Prompt) => ({
+    prompt,
+    isFavorite: favorites.has(prompt.id),
+    isCopied: copiedId === prompt.id,
+    onCopy: () => handleCopy(prompt.content, prompt.id),
+    onEdit: () => setIsEditing(prompt),
+    onDelete: () => handleDelete(prompt.id),
+    onToggleFavorite: () => toggleFavorite(prompt.id),
+    onTagClick: (tag: string) => setSearch(tag),
+  });
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100">Prompts Library</h1>
-          <p className="text-sm text-zinc-500">{prompts.length} prompts • {favorites.size} favorites • Drag to reorder</p>
+          <p className="text-sm text-zinc-500">{prompts.length} prompts • {favorites.size} favorites</p>
         </div>
         <button 
           onClick={() => setIsCreating(true)}
@@ -333,13 +546,25 @@ export function Prompts() {
           Favorites
         </button>
 
+        {/* View Mode Toggle */}
         <div className="flex rounded-lg border border-zinc-700 bg-zinc-800 p-0.5">
+          <button
+            onClick={() => setViewMode('table')}
+            className={cn(
+              "rounded-md p-1.5 transition-colors",
+              viewMode === 'table' ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"
+            )}
+            title="Table view"
+          >
+            <Table2 className="h-4 w-4" />
+          </button>
           <button
             onClick={() => setViewMode('list')}
             className={cn(
               "rounded-md p-1.5 transition-colors",
               viewMode === 'list' ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"
             )}
+            title="Compact list"
           >
             <List className="h-4 w-4" />
           </button>
@@ -349,6 +574,7 @@ export function Prompts() {
               "rounded-md p-1.5 transition-colors",
               viewMode === 'grid' ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"
             )}
+            title="Card grid"
           >
             <Grid className="h-4 w-4" />
           </button>
@@ -388,35 +614,79 @@ export function Prompts() {
         })}
       </div>
 
-      {/* Prompts Grid/List with DnD */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext items={filteredPrompts.map(p => p.id)} strategy={verticalListSortingStrategy}>
-          <div className={cn(
-            viewMode === 'grid' 
-              ? "grid gap-4 sm:grid-cols-2 lg:grid-cols-3" 
-              : "space-y-3"
-          )}>
-            {filteredPrompts.map((prompt) => (
-              <SortablePromptCard
-                key={prompt.id}
-                prompt={prompt}
-                isFavorite={favorites.has(prompt.id)}
-                isCopied={copiedId === prompt.id}
-                onCopy={() => handleCopy(prompt.content, prompt.id)}
-                onEdit={() => setIsEditing(prompt)}
-                onDelete={() => handleDelete(prompt.id)}
-                onToggleFavorite={() => toggleFavorite(prompt.id)}
-                onTagClick={(tag) => setSearch(tag)}
-                viewMode={viewMode}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
+      {/* Prompts Display */}
+      {viewMode === 'table' && (
+        <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-zinc-800 bg-zinc-800/50">
+                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider w-10">
+                  <Star className="h-3.5 w-3.5" />
+                </th>
+                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                  Title
+                </th>
+                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider w-28">
+                  Category
+                </th>
+                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider hidden lg:table-cell">
+                  Preview
+                </th>
+                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider hidden md:table-cell">
+                  Tags
+                </th>
+                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider hidden sm:table-cell w-24">
+                  Updated
+                </th>
+                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider w-24">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredPrompts.map((prompt) => (
+                <PromptTableRow key={prompt.id} {...getPromptProps(prompt)} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {viewMode === 'list' && (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={filteredPrompts.map(p => p.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-2">
+              {filteredPrompts.map((prompt) => (
+                <PromptCompactItem key={prompt.id} {...getPromptProps(prompt)} />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      )}
+
+      {viewMode === 'grid' && (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={filteredPrompts.map(p => p.id)} strategy={verticalListSortingStrategy}>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredPrompts.map((prompt) => (
+                <SortablePromptCard
+                  key={prompt.id}
+                  {...getPromptProps(prompt)}
+                  viewMode="grid"
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      )}
 
       {filteredPrompts.length === 0 && (
         <div className="py-16 text-center">
