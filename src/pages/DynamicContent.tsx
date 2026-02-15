@@ -81,21 +81,35 @@ export function DynamicContent() {
   // Find the content type config
   const typeConfig = data.contentTypes.find(t => t.id === typeId);
 
-  // Storage key for this content type
-  const STORAGE_KEY = `content-${typeId}`;
-  const FAVORITES_KEY = `content-${typeId}-favorites`;
-
   // Load items from localStorage
-  const [items, setItems] = useState<Record<string, unknown>[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [items, setItems] = useState<Record<string, unknown>[]>([]);
 
   // Favorites (for cards model)
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    const saved = localStorage.getItem(FAVORITES_KEY);
-    return saved ? new Set(JSON.parse(saved)) : new Set();
-  });
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+
+  // Reload data when typeId changes
+  useEffect(() => {
+    if (!typeId) return;
+    
+    // Load items
+    const savedItems = localStorage.getItem(`content-${typeId}`);
+    setItems(savedItems ? JSON.parse(savedItems) : []);
+    
+    // Load favorites
+    const savedFavorites = localStorage.getItem(`content-${typeId}-favorites`);
+    setFavorites(savedFavorites ? new Set(JSON.parse(savedFavorites)) : new Set());
+    
+    // Reset other state
+    setSearch('');
+    setFilter('all');
+    setSelectedItem(null);
+    setIsEditing(false);
+    setEditData({});
+    setHasUnsaved(false);
+    setShowImportExport(false);
+    setShowFavoritesOnly(false);
+    setExpandedFolders(new Set());
+  }, [typeId]);
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
@@ -109,17 +123,8 @@ export function DynamicContent() {
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [cardViewMode, setCardViewMode] = useState<'grid' | 'list' | 'table'>('table');
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Expand folders on init
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => {
-    const roots = new Set<string>();
-    items.forEach(item => {
-      const cat = String(item['category'] || '');
-      if (cat) roots.add(cat.split('/')[0]);
-    });
-    return roots;
-  });
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -136,10 +141,10 @@ export function DynamicContent() {
     );
   }
 
-  // Save items to localStorage
+  // Save items to localStorage (use typeId directly to ensure correct key)
   const saveItems = (newItems: Record<string, unknown>[]) => {
     setItems(newItems);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newItems));
+    localStorage.setItem(`content-${typeId}`, JSON.stringify(newItems));
   };
 
   // Toggle favorite
@@ -151,7 +156,7 @@ export function DynamicContent() {
       } else {
         next.add(id);
       }
-      localStorage.setItem(FAVORITES_KEY, JSON.stringify([...next]));
+      localStorage.setItem(`content-${typeId}-favorites`, JSON.stringify([...next]));
       return next;
     });
   };
