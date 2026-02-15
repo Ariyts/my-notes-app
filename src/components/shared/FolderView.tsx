@@ -58,6 +58,7 @@ export interface FolderViewProps {
   onCreateFolder: (folderName: string) => void;
   onUpdate: (id: string, data: Partial<FolderItem>) => void;
   onDelete: (id: string) => void;
+  onDeleteFolder?: (folderPath: string) => void;
   
   // Import/Export
   onExportAll?: () => void;
@@ -87,6 +88,7 @@ export function FolderView({
   onCreateFolder,
   onUpdate,
   onDelete,
+  onDeleteFolder,
   onExportAll,
   onImport,
   onExportCurrent,
@@ -119,6 +121,9 @@ export function FolderView({
   const [renamingItem, setRenamingItem] = useState<string | null>(null);
   const [renamingItemValue, setRenamingItemValue] = useState('');
   const renamingJustCompleted = useRef(false);
+  
+  // Delete confirmation state
+  const [deletingFolder, setDeletingFolder] = useState<string | null>(null);
 
   // Initialize expanded folders
   useEffect(() => {
@@ -231,6 +236,29 @@ export function FolderView({
     
     renamingJustCompleted.current = true;
     onUpdate(itemId, { title: trimmedTitle });
+  };
+
+  const handleDeleteFolder = (folderPath: string) => {
+    if (onDeleteFolder) {
+      onDeleteFolder(folderPath);
+    } else {
+      // Default behavior: delete all items in this folder
+      items.forEach(item => {
+        if (item.category === folderPath || item.category.startsWith(folderPath + '/')) {
+          onDelete(item.id);
+        }
+      });
+    }
+    setDeletingFolder(null);
+    // Clear selection if deleted folder contained selected item
+    if (selectedItem && (selectedItem.category === folderPath || selectedItem.category.startsWith(folderPath + '/'))) {
+      const remaining = items.filter(item => 
+        item.category !== folderPath && !item.category.startsWith(folderPath + '/')
+      );
+      if (remaining.length > 0) {
+        onSelect(remaining[0]);
+      }
+    }
   };
 
   const handleImportFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -484,7 +512,33 @@ export function FolderView({
                 >
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setDeletingFolder(rootCategory); }}
+                  className="opacity-0 group-hover:opacity-100 rounded p-1 text-zinc-400 hover:bg-red-500/20 hover:text-red-400 transition-opacity"
+                  title="Delete folder"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </div>
+
+              {/* Delete confirmation */}
+              {deletingFolder === rootCategory && (
+                <div className="ml-8 flex items-center gap-1 py-1 text-xs">
+                  <span className="text-zinc-400">Delete "{rootCategory}"?</span>
+                  <button
+                    onClick={() => handleDeleteFolder(rootCategory)}
+                    className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-500 flex items-center gap-1"
+                  >
+                    <Check className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={() => setDeletingFolder(null)}
+                    className="rounded bg-zinc-700 px-2 py-0.5 text-zinc-300 hover:bg-zinc-600 flex items-center gap-1"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
 
               {expandedFolders.has(rootCategory) && (
                 <div className="ml-3 border-l border-zinc-800 pl-2">
@@ -538,10 +592,37 @@ export function FolderView({
                               >
                                 <Pencil className="h-3 w-3" />
                               </button>
+                              <button
+                                onClick={() => setDeletingFolder(`${rootCategory}/${subCategory}`)}
+                                className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-zinc-400 hover:bg-red-500/20 hover:text-red-400 transition-opacity"
+                                title="Delete subfolder"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
                             </>
                           )}
                         </div>
                       )}
+                      
+                      {/* Delete confirmation for subfolder */}
+                      {deletingFolder === `${rootCategory}/${subCategory}` && (
+                        <div className="ml-6 flex items-center gap-1 py-1 text-xs">
+                          <span className="text-zinc-400">Delete?</span>
+                          <button
+                            onClick={() => handleDeleteFolder(`${rootCategory}/${subCategory}`)}
+                            className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-500"
+                          >
+                            <Check className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={() => setDeletingFolder(null)}
+                            className="rounded bg-zinc-700 px-2 py-0.5 text-zinc-300 hover:bg-zinc-600"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
+
                       {categoryItems.map(item => (
                         <div
                           key={item.id}

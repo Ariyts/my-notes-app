@@ -7,6 +7,7 @@ import publishedPrompts from '../data/prompts.json';
 import publishedNotes from '../data/notes.json';
 import publishedSnippets from '../data/snippets.json';
 import publishedResources from '../data/resources.json';
+import publishedContentTypes from '../data/content-types.json';
 
 // Types
 type ChangeType = 'added' | 'modified' | 'deleted';
@@ -110,21 +111,43 @@ function generateContentTypeId(name: string): string {
 const CONTENT_TYPES_STORAGE_KEY = 'pentest-hub-content-types';
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
-  // Load content types from localStorage or use defaults
+  // Load content types: merge defaults + published (from file) + localStorage
   const [contentTypes, setContentTypes] = useState<ContentTypeConfig[]>(() => {
+    const defaultIds = DEFAULT_CONTENT_TYPES.map(t => t.id);
+    
+    // Start with defaults
+    let merged = [...DEFAULT_CONTENT_TYPES];
+    
+    // Add published custom types from content-types.json
+    const publishedCustom = (publishedContentTypes as ContentTypeConfig[]).filter(
+      (t: ContentTypeConfig) => !defaultIds.includes(t.id)
+    );
+    publishedCustom.forEach((t: ContentTypeConfig) => {
+      if (!merged.some(m => m.id === t.id)) {
+        merged.push(t);
+      }
+    });
+    
+    // Add/override with localStorage (user's local changes take priority)
     const saved = localStorage.getItem(CONTENT_TYPES_STORAGE_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Merge with defaults (in case new default types added)
-        const defaultIds = DEFAULT_CONTENT_TYPES.map(t => t.id);
         const customTypes = parsed.filter((t: ContentTypeConfig) => !defaultIds.includes(t.id));
-        return [...DEFAULT_CONTENT_TYPES, ...customTypes];
+        customTypes.forEach((t: ContentTypeConfig) => {
+          const idx = merged.findIndex(m => m.id === t.id);
+          if (idx >= 0) {
+            merged[idx] = t; // Override with local version
+          } else {
+            merged.push(t); // Add new local type
+          }
+        });
       } catch {
-        return DEFAULT_CONTENT_TYPES;
+        // Ignore parse errors
       }
     }
-    return DEFAULT_CONTENT_TYPES;
+    
+    return merged;
   });
 
   // Save content types to localStorage
