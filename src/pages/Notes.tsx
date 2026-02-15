@@ -6,7 +6,8 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { 
   Plus, Search, Trash2, FileText, Folder, FolderOpen,
   Edit3, Eye, ChevronRight, ChevronDown, Copy, Check, Columns,
-  FileCode, LayoutTemplate, Download, Upload, Archive, FileDown, FileUp
+  FileCode, LayoutTemplate, Download, Upload, Archive, FileDown, FileUp,
+  FolderPlus, X
 } from 'lucide-react';
 import { useData } from '../lib/DataContext';
 import { Note } from '../types';
@@ -55,6 +56,8 @@ export function Notes() {
   
   // Modal
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
   
   // Form state for editing
   const [editTitle, setEditTitle] = useState('');
@@ -109,15 +112,37 @@ export function Notes() {
     setShowTemplates(false);
   };
 
-  const handleCreateBlank = () => {
+  const handleCreateBlank = (category?: string) => {
     const newNote = notesApi.add({
       title: 'Untitled Note',
-      category: 'Methodology/General',
+      category: category || 'Methodology/General',
       content: '# New Note\n\nStart writing your notes here...\n\n## Example Section\n\n```bash\necho "Hello World"\n```',
       tags: []
     });
     selectNote(newNote);
     setViewMode('edit');
+  };
+
+  const handleCreateFolder = () => {
+    if (!newFolderName.trim()) return;
+    // Create a placeholder note to establish the folder
+    const folderPath = newFolderName.trim();
+    const newNote = notesApi.add({
+      title: 'Welcome to ' + folderPath,
+      category: folderPath,
+      content: `# Welcome to ${folderPath}\n\nThis is a new folder. Start organizing your notes here!`,
+      tags: []
+    });
+    selectNote(newNote);
+    setExpandedFolders(prev => new Set([...prev, folderPath.split('/')[0]]));
+    setNewFolderName('');
+    setShowNewFolder(false);
+    setViewMode('edit');
+  };
+
+  const handleFolderClick = (folderPath: string) => {
+    // Create note directly in this folder
+    handleCreateBlank(folderPath);
   };
 
   const handleSave = useCallback(() => {
@@ -265,6 +290,15 @@ export function Notes() {
     ), [notes, search]
   );
 
+  // Get all existing folders from notes
+  const existingFolders = useMemo(() => {
+    const folders = new Set<string>();
+    notes.forEach(note => {
+      folders.add(note.category);
+    });
+    return Array.from(folders).sort();
+  }, [notes]);
+
   // Build tree structure
   const tree = useMemo(() => {
     const treeObj: Record<string, Record<string, Note[]>> = {};
@@ -303,9 +337,16 @@ export function Notes() {
                 <Archive className="h-4 w-4" />
               </button>
               <button 
-                onClick={handleCreateBlank}
+                onClick={() => setShowNewFolder(true)}
                 className="rounded-lg bg-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-600"
-                title="New Blank Note"
+                title="New Folder"
+              >
+                <FolderPlus className="h-4 w-4" />
+              </button>
+              <button 
+                onClick={() => handleCreateBlank()}
+                className="rounded-lg bg-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-600"
+                title="New Note"
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -318,6 +359,42 @@ export function Notes() {
               </button>
             </div>
           </div>
+
+          {/* New Folder Input */}
+          {showNewFolder && (
+            <div className="mb-3 rounded-lg bg-zinc-800/50 p-3">
+              <div className="text-xs font-medium text-zinc-400 mb-2">Create New Folder</div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Folder name (e.g., Web/XSS)"
+                  className="flex-1 rounded bg-zinc-700 px-2 py-1.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreateFolder();
+                    if (e.key === 'Escape') { setShowNewFolder(false); setNewFolderName(''); }
+                  }}
+                  autoFocus
+                />
+                <button
+                  onClick={handleCreateFolder}
+                  className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500"
+                >
+                  Create
+                </button>
+                <button
+                  onClick={() => { setShowNewFolder(false); setNewFolderName(''); }}
+                  className="rounded bg-zinc-700 p-1.5 text-zinc-400 hover:text-zinc-200"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="text-[10px] text-zinc-500 mt-1.5">
+                Use / for subfolders: e.g., "Web/XSS" or "Cloud/AWS"
+              </div>
+            </div>
+          )}
 
           {/* Import/Export Panel */}
           {showImportExport && (
@@ -383,34 +460,51 @@ export function Notes() {
         <div className="flex-1 overflow-y-auto p-2">
           {Object.entries(tree).sort().map(([rootCategory, subCategories]) => (
             <div key={rootCategory} className="mb-1">
-              <button
-                onClick={() => toggleFolder(rootCategory)}
-                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
-              >
-                {expandedFolders.has(rootCategory) ? (
-                  <>
-                    <ChevronDown className="h-3 w-3 text-zinc-500" />
-                    <FolderOpen className="h-4 w-4 text-amber-500" />
-                  </>
-                ) : (
-                  <>
-                    <ChevronRight className="h-3 w-3 text-zinc-500" />
-                    <Folder className="h-4 w-4 text-amber-500/70" />
-                  </>
-                )}
-                <span>{rootCategory}</span>
-                <span className="ml-auto text-xs text-zinc-600">
+              <div className="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-300 hover:bg-zinc-800 group">
+                <button
+                  onClick={() => toggleFolder(rootCategory)}
+                  className="flex items-center gap-2 flex-1"
+                >
+                  {expandedFolders.has(rootCategory) ? (
+                    <>
+                      <ChevronDown className="h-3 w-3 text-zinc-500" />
+                      <FolderOpen className="h-4 w-4 text-amber-500" />
+                    </>
+                  ) : (
+                    <>
+                      <ChevronRight className="h-3 w-3 text-zinc-500" />
+                      <Folder className="h-4 w-4 text-amber-500/70" />
+                    </>
+                  )}
+                  <span>{rootCategory}</span>
+                </button>
+                <span className="text-xs text-zinc-600 mr-1">
                   {Object.values(subCategories).flat().length}
                 </span>
-              </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleFolderClick(rootCategory); }}
+                  className="opacity-0 group-hover:opacity-100 rounded p-1 text-emerald-400 hover:bg-emerald-500/20 transition-opacity"
+                  title="Add note to this folder"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
 
               {expandedFolders.has(rootCategory) && (
                 <div className="ml-3 border-l border-zinc-800 pl-2">
                   {Object.entries(subCategories).sort().map(([subCategory, categoryNotes]) => (
                     <div key={subCategory} className="mt-1">
                       {subCategory !== '_root' && (
-                        <div className="px-2 py-1 text-xs font-medium text-zinc-500">
-                          {subCategory}
+                        <div className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-zinc-500 group">
+                          <Folder className="h-3 w-3 text-amber-500/50" />
+                          <span className="flex-1">{subCategory}</span>
+                          <button
+                            onClick={() => handleFolderClick(`${rootCategory}/${subCategory}`)}
+                            className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-emerald-400 hover:bg-emerald-500/20 transition-opacity"
+                            title="Add note to this subfolder"
+                          >
+                            <Plus className="h-3 w-3" />
+                          </button>
                         </div>
                       )}
                       {categoryNotes.map(note => (
@@ -550,16 +644,26 @@ export function Notes() {
             {/* Category & Tags Bar */}
             <div className="flex items-center gap-4 border-b border-zinc-800 px-4 py-2 text-sm">
               <div className="flex items-center gap-2">
-                <span className="text-zinc-500">Category:</span>
-                <input
+                <span className="text-zinc-500">Folder:</span>
+                <select
                   value={editCategory}
                   onChange={(e) => { setEditCategory(e.target.value); setHasUnsaved(true); }}
                   className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  placeholder="e.g., Web/XSS"
+                >
+                  <option value="">Select folder...</option>
+                  {existingFolders.map(folder => (
+                    <option key={folder} value={folder}>{folder}</option>
+                  ))}
+                </select>
+                <input
+                  value={editCategory}
+                  onChange={(e) => { setEditCategory(e.target.value); setHasUnsaved(true); }}
+                  className="flex-1 rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  placeholder="or type new folder (e.g., Web/XSS)"
                   list="categories"
                 />
                 <datalist id="categories">
-                  {PREDEFINED_CATEGORIES.map(cat => (
+                  {[...PREDEFINED_CATEGORIES, ...existingFolders].map(cat => (
                     <option key={cat} value={cat} />
                   ))}
                 </datalist>
@@ -643,7 +747,14 @@ export function Notes() {
             <p className="mt-1 text-sm">Select a note from the sidebar or create a new one</p>
             <div className="mt-4 flex gap-2">
               <button
-                onClick={handleCreateBlank}
+                onClick={() => setShowNewFolder(true)}
+                className="flex items-center gap-2 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-600"
+              >
+                <FolderPlus className="h-4 w-4" />
+                New Folder
+              </button>
+              <button
+                onClick={() => handleCreateBlank()}
                 className="flex items-center gap-2 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-600"
               >
                 <Plus className="h-4 w-4" />
