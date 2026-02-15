@@ -1,42 +1,63 @@
 [
   {
-    "id": "prompt-1",
     "title": "Subdomain Enumeration Strategy",
     "category": "recon",
     "content": "Act as a senior penetration tester specializing in reconnaissance.\n\nI'm targeting [TARGET_DOMAIN]. Generate a comprehensive subdomain enumeration strategy including:\n\n1. Passive techniques (certificate transparency, DNS records, web archives)\n2. Active techniques (brute-forcing with recommended wordlists)\n3. Tools and one-liners for each technique\n4. How to validate and prioritize discovered subdomains\n\nFocus on techniques that won't trigger WAF alerts.",
-    "tags": ["recon", "subdomains", "passive"],
-    "updatedAt": "2024-01-15T10:00:00.000Z"
+    "tags": [
+      "recon",
+      "subdomains",
+      "passive"
+    ],
+    "id": "91496a95-1e58-4b41-8341-5abef6768ee4",
+    "updatedAt": "2026-02-14T14:33:40.012Z"
   },
   {
-    "id": "prompt-2",
     "title": "SQL Injection Payload Generator",
     "category": "exploit",
     "content": "You are an expert in SQL injection attacks. \n\nGiven the following context:\n- Database: [MySQL/PostgreSQL/MSSQL/Oracle]\n- Injection point: [parameter name]\n- Current payload that works: [payload]\n\nGenerate:\n1. 5 variations to bypass WAF\n2. Time-based blind payloads\n3. Union-based payloads for data extraction\n4. Stacked queries if applicable\n\nFormat as a table with payload, technique, and purpose.",
-    "tags": ["sqli", "bypass", "payloads"],
-    "updatedAt": "2024-01-15T10:00:00.000Z"
+    "tags": [
+      "sqli",
+      "bypass",
+      "payloads"
+    ],
+    "id": "350edb89-e975-4298-9e97-61c09709d888",
+    "updatedAt": "2026-02-14T14:33:40.012Z"
   },
   {
-    "id": "prompt-3",
     "title": "Privilege Escalation Checklist",
     "category": "privesc",
     "content": "Act as a red team operator. I have a low-privilege shell on a [Linux/Windows] system.\n\nEnumerate and suggest privilege escalation vectors. Check for:\n\nLinux:\n- SUID/SGID binaries\n- Sudo misconfigurations\n- Cron jobs\n- Kernel exploits\n- Docker/container escapes\n\nWindows:\n- Unquoted service paths\n- AlwaysInstallElevated\n- Token impersonation\n- Weak service permissions\n\nProvide exact commands to check each vector.",
-    "tags": ["privesc", "linux", "windows", "enumeration"],
-    "updatedAt": "2024-01-15T10:00:00.000Z"
+    "tags": [
+      "privesc",
+      "linux",
+      "windows",
+      "enumeration"
+    ],
+    "id": "c321a3f8-c6ec-47b2-a75a-15c3f46dcb5e",
+    "updatedAt": "2026-02-14T14:33:40.012Z"
   },
   {
-    "id": "prompt-4",
     "title": "XSS Filter Bypass",
     "category": "exploit",
     "content": "You are a web security expert specializing in XSS.\n\nThe target has the following filters:\n- [describe filters, e.g., \"blocks <script>, onclick, etc.\"]\n\nCurrent context: [HTML/JS/attribute context]\n\nGenerate 10 bypass payloads ranked by likelihood of success. Include:\n1. Encoding variations\n2. Alternative event handlers\n3. DOM-based techniques\n4. Mutation XSS if applicable",
-    "tags": ["xss", "bypass", "payloads"],
-    "updatedAt": "2024-01-15T10:00:00.000Z"
+    "tags": [
+      "xss",
+      "bypass",
+      "payloads"
+    ],
+    "id": "5f53ff3d-91ae-4269-9586-e1f1973c7b65",
+    "updatedAt": "2026-02-14T14:33:40.012Z"
   },
   {
-    "id": "prompt-5",
     "title": "Report Executive Summary",
     "category": "reporting",
     "content": "Write an executive summary for a penetration test report.\n\nContext:\n- Client: [CLIENT_NAME]\n- Scope: [SCOPE]\n- Duration: [DATES]\n- Critical findings: [NUMBER]\n- High findings: [NUMBER]\n\nThe summary should:\n1. Be 1 paragraph (4-5 sentences)\n2. Highlight business impact\n3. Avoid technical jargon\n4. End with a risk-rated recommendation\n\nTone: Professional but urgent.",
-    "tags": ["reporting", "executive", "summary"],
-    "updatedAt": "2024-01-15T10:00:00.000Z"
+    "tags": [
+      "reporting",
+      "executive",
+      "summary"
+    ],
+    "id": "cdc543f7-0c42-4f31-8641-9915ea0917ba",
+    "updatedAt": "2026-02-14T14:33:40.012Z"
   }
 ]
