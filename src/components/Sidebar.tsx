@@ -10,17 +10,33 @@ import {
   Download,
   Settings,
   Cloud,
-  FileDown
+  FileDown,
+  Layers,
+  Plus
 } from 'lucide-react';
 import { cn } from '../utils/cn';
 import { gistSync } from '../lib/storage-enhanced';
+import { useContentTypes } from '../lib/ContentTypesContext';
 
-const NAV_ITEMS = [
-  { path: '/', label: 'Prompts', icon: Terminal, description: 'LLM prompts for pentesting' },
-  { path: '/notes', label: 'Notes', icon: StickyNote, description: 'Methodology & techniques' },
-  { path: '/snippets', label: 'Snippets', icon: Database, description: 'Commands & one-liners' },
-  { path: '/resources', label: 'Resources', icon: LinkIcon, description: 'Links & tools' },
-];
+// Icon mapping for dynamic types
+const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  Terminal,
+  StickyNote,
+  Database,
+  Link: LinkIcon,
+  FileText: StickyNote,
+  CheckSquare: Database,
+  HelpCircle: Terminal,
+  Code: Terminal,
+};
+
+// Map content type IDs to routes (for default types)
+const TYPE_ROUTES: Record<string, string> = {
+  prompts: '/',
+  notes: '/notes',
+  snippets: '/snippets',
+  resources: '/resources',
+};
 
 interface SidebarProps {
   onOpenSearch: () => void;
@@ -33,6 +49,7 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
   const location = useLocation();
   const gistConfig = gistSync.getConfig();
   const isGistConnected = !!gistConfig.gistId;
+  const { types } = useContentTypes();
 
   return (
     <div className="flex h-screen w-64 flex-col border-r border-zinc-800 bg-zinc-950">
@@ -60,26 +77,41 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-2">
-        <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-600">
-          Content
+      <nav className="flex-1 space-y-1 px-3 py-2 overflow-y-auto">
+        <div className="mb-2 flex items-center justify-between px-3">
+          <span className="text-xs font-semibold uppercase tracking-wider text-zinc-600">
+            Content
+          </span>
+          <Link
+            to="/content-types"
+            className="rounded p-1 text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300"
+            title="Manage content types"
+          >
+            <Layers className="h-3.5 w-3.5" />
+          </Link>
         </div>
-        {NAV_ITEMS.map((item) => {
-          const isActive = location.pathname === item.path;
+        
+        {types.map((type) => {
+          const route = TYPE_ROUTES[type.id] || `/content/${type.id}`;
+          const isActive = location.pathname === route;
+          const IconComponent = ICON_MAP[type.icon] || Terminal;
+          const colorClass = type.color || 'emerald';
+
           return (
             <Link
-              key={item.path}
-              to={item.path}
+              key={type.id}
+              to={route}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                 isActive 
-                  ? "bg-emerald-600/10 text-emerald-400 border-l-2 border-emerald-500 -ml-0.5 pl-[calc(0.75rem+2px)]" 
+                  ? `bg-${colorClass}-600/10 text-${colorClass}-400 border-l-2 border-${colorClass}-500 -ml-0.5 pl-[calc(0.75rem+2px)]` 
                   : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
               )}
+              style={isActive ? { borderLeftColor: `var(--color-${colorClass})` } : undefined}
             >
-              <item.icon className={cn("h-4 w-4", isActive && "text-emerald-400")} />
+              <IconComponent className={cn("h-4 w-4", isActive && `text-${colorClass}-400`)} />
               <div className="flex-1">
-                <div>{item.label}</div>
+                <div>{type.name}</div>
               </div>
             </Link>
           );
@@ -119,7 +151,10 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
         </button>
         <Link 
           to="/settings"
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
+          className={cn(
+            "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100",
+            location.pathname === '/settings' && "text-emerald-400 bg-emerald-600/10"
+          )}
         >
           <Settings className="h-4 w-4" />
           <span>Settings</span>
