@@ -1,37 +1,44 @@
 [
   {
+    "id": "resource-1",
     "title": "PayloadsAllTheThings",
     "url": "https://github.com/swisskyrepo/PayloadsAllTheThings",
     "category": "payloads",
-    "note": "Comprehensive payload collection for web attacks",
-    "id": "5cdf3137-2f9d-4336-a5c3-88fc3c1ae611"
+    "note": "Comprehensive payload collection for web attacks"
   },
   {
+    "id": "resource-2",
     "title": "HackTricks",
     "url": "https://book.hacktricks.xyz/",
     "category": "cheatsheets",
-    "note": "Massive pentesting wiki",
-    "id": "6974607c-0e8c-4ecb-9d8e-3ec0aedbf15b"
+    "note": "Massive pentesting wiki"
   },
   {
+    "id": "resource-3",
     "title": "GTFOBins",
     "url": "https://gtfobins.github.io/",
     "category": "cheatsheets",
-    "note": "Unix binaries for privilege escalation",
-    "id": "95c8ee92-1f1d-4aec-b1a5-1394aa77574c"
+    "note": "Unix binaries for privilege escalation"
   },
   {
+    "id": "resource-4",
     "title": "LOLBAS",
     "url": "https://lolbas-project.github.io/",
     "category": "cheatsheets",
-    "note": "Living Off The Land Binaries (Windows)",
-    "id": "55074b9b-9822-4ea7-ac1a-b606469400fd"
+    "note": "Living Off The Land Binaries (Windows)"
   },
   {
+    "id": "resource-5",
     "title": "SecLists",
     "url": "https://github.com/danielmiessler/SecLists",
     "category": "wordlists",
-    "note": "The wordlist collection",
-    "id": "b1a17d37-d033-4bf9-93cb-cb310a5e4f8b"
+    "note": "The wordlist collection"
+  },
+  {
+    "id": "180ea40b-2ef6-40e0-9648-c405984d65eb",
+    "title": "123",
+    "url": "https://ariyts.github.io/my-notes-app/#/resources",
+    "category": "tools",
+    "note": ""
   }
 ]
