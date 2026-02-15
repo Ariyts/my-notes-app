@@ -1,25 +1,69 @@
 import { useState, useEffect } from 'react';
-import { 
-  Trash2, Download, Upload, AlertTriangle, Info, Keyboard, 
-  Cloud, History, Smartphone, HardDrive, RefreshCw, Check
+import {
+  Trash2,
+  Download,
+  Upload,
+  AlertTriangle,
+  Info,
+  Keyboard,
+  Cloud,
+  History,
+  Smartphone,
+  HardDrive,
+  RefreshCw,
+  Check,
+  Rocket,
+  Eye,
+  EyeOff,
+  Loader2,
+  ExternalLink,
 } from 'lucide-react';
 import { storageEnhanced, gistSync } from '../lib/storage-enhanced';
+import {
+  syncToRepository,
+  validateToken,
+  getLastSyncInfo,
+  saveLastSyncInfo,
+} from '../lib/repoSync';
 
 export function Settings() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    type: 'success' | 'error' | 'info';
+    text: string;
+  } | null>(null);
   const [isPWAInstalled, setIsPWAInstalled] = useState(false);
-  const [swStatus, setSwStatus] = useState<'checking' | 'active' | 'none'>('checking');
+  const [swStatus, setSwStatus] = useState<'checking' | 'active' | 'none'>(
+    'checking'
+  );
+
+  // Repository sync state
+  const [githubToken, setGithubToken] = useState('');
+  const [showToken, setShowToken] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<string | null>(null);
+  const [tokenUser, setTokenUser] = useState<string | null>(null);
+  const [isValidatingToken, setIsValidatingToken] = useState(false);
+
+  // Sync stats
+  const syncStats = {
+    prompts: storageEnhanced.prompts.getAll().length,
+    notes: storageEnhanced.notes.getAll().length,
+    snippets: storageEnhanced.snippets.getAll().length,
+    resources: storageEnhanced.resources.getAll().length,
+  };
+
+  const lastSyncInfo = getLastSyncInfo();
 
   useEffect(() => {
     // Check PWA status
     if (window.matchMedia('(display-mode: standalone)').matches) {
       setIsPWAInstalled(true);
     }
-    
+
     // Check service worker
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistration().then(reg => {
+      navigator.serviceWorker.getRegistration().then((reg) => {
         setSwStatus(reg ? 'active' : 'none');
       });
     } else {
@@ -29,11 +73,15 @@ export function Settings() {
 
   const handleExport = () => {
     const data = storageEnhanced.exportAll();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: 'application/json',
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `pentest-hub-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `pentest-hub-backup-${
+      new Date().toISOString().split('T')[0]
+    }.json`;
     a.click();
     URL.revokeObjectURL(url);
     setMessage({ type: 'success', text: 'Backup exported successfully!' });
@@ -50,7 +98,10 @@ export function Settings() {
         const data = JSON.parse(event.target?.result as string);
         if (!confirm('This will REPLACE all current data. Continue?')) return;
         storageEnhanced.importAll(data);
-        setMessage({ type: 'success', text: 'Import successful! Refreshing...' });
+        setMessage({
+          type: 'success',
+          text: 'Import successful! Refreshing...',
+        });
         setTimeout(() => window.location.reload(), 1500);
       } catch {
         setMessage({ type: 'error', text: 'Invalid backup file format' });
@@ -63,16 +114,117 @@ export function Settings() {
   const handleClear = () => {
     storageEnhanced.clearAll();
     setShowClearConfirm(false);
-    setMessage({ type: 'success', text: 'All data cleared. Refreshing...' });
+    setMessage({
+      type: 'success',
+      text: 'All data cleared. Refreshing...',
+    });
     setTimeout(() => window.location.reload(), 1500);
   };
 
   const handleClearCache = async () => {
     if ('caches' in window) {
       const keys = await caches.keys();
-      await Promise.all(keys.map(key => caches.delete(key)));
-      setMessage({ type: 'success', text: 'Cache cleared! Refreshing...' });
+      await Promise.all(keys.map((key) => caches.delete(key)));
+      setMessage({
+        type: 'success',
+        text: 'Cache cleared! Refreshing...',
+      });
       setTimeout(() => window.location.reload(), 1500);
+    }
+  };
+
+  const handleValidateToken = async () => {
+    if (!githubToken.trim()) {
+      setTokenUser(null);
+      return;
+    }
+
+    setIsValidatingToken(true);
+    const result = await validateToken(githubToken);
+    setIsValidatingToken(false);
+
+    if (result.valid && result.user) {
+      setTokenUser(result.user);
+      setMessage({ type: 'success', text: `Authenticated as @${result.user}` });
+    } else {
+      setTokenUser(null);
+      setMessage({ type: 'error', text: result.error || 'Invalid token' });
+    }
+    setTimeout(() => setMessage(null), 3000);
+  };
+
+  const handlePublish = async () => {
+    if (!githubToken.trim()) {
+      setMessage({ type: 'error', text: 'Please enter a GitHub token' });
+      return;
+    }
+
+    setIsSyncing(true);
+    setSyncProgress('Validating token...');
+
+    // Validate token first
+    const tokenResult = await validateToken(githubToken);
+    if (!tokenResult.valid) {
+      setMessage({
+        type: 'error',
+        text: tokenResult.error || 'Invalid GitHub token',
+      });
+      setIsSyncing(false);
+      setSyncProgress(null);
+      return;
+    }
+
+    setSyncProgress('Preparing data...');
+
+    try {
+      // Get all data
+      const data = {
+        prompts: storageEnhanced.prompts.getAll(),
+        notes: storageEnhanced.notes.getAll(),
+        snippets: storageEnhanced.snippets.getAll(),
+        resources: storageEnhanced.resources.getAll(),
+      };
+
+      const result = await syncToRepository(
+        data,
+        githubToken,
+        (status) => setSyncProgress(status)
+      );
+
+      if (result.success) {
+        if (result.commitSha) {
+          saveLastSyncInfo(result.commitSha);
+        }
+
+        // Clear localStorage after successful publish
+        storageEnhanced.resetToInitial();
+
+        setMessage({
+          type: 'success',
+          text: result.workflowTriggered
+            ? 'Published! Site rebuilding in 2-3 minutes...'
+            : 'Published! Manual rebuild may be needed.',
+        });
+
+        // Clear token after successful publish
+        setGithubToken('');
+        setTokenUser(null);
+      } else {
+        setMessage({
+          type: 'error',
+          text: result.error || 'Failed to publish',
+        });
+      }
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : 'Unknown error';
+      setMessage({
+        type: 'error',
+        text: `Error: ${errorMessage}`,
+      });
+    } finally {
+      setIsSyncing(false);
+      setSyncProgress(null);
     }
   };
 
@@ -104,21 +256,195 @@ export function Settings() {
     <div className="max-w-3xl space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-zinc-100">Settings</h1>
-        <p className="text-sm text-zinc-500">Manage your Pentest Hub data and preferences</p>
+        <p className="text-sm text-zinc-500">
+          Manage your Pentest Hub data and preferences
+        </p>
       </div>
 
       {message && (
-        <div className={`rounded-lg p-4 ${message.type === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+        <div
+          className={`rounded-lg p-4 ${
+            message.type === 'success'
+              ? 'bg-emerald-500/10 text-emerald-400'
+              : message.type === 'info'
+              ? 'bg-blue-500/10 text-blue-400'
+              : 'bg-red-500/10 text-red-400'
+          }`}
+        >
           {message.text}
         </div>
       )}
 
+      {/* Repository Sync */}
+      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <Rocket className="h-5 w-5 text-emerald-400" />
+          <h2 className="text-lg font-semibold text-zinc-100">
+            Repository Sync
+          </h2>
+        </div>
+
+        <div className="space-y-4">
+          {/* Data to sync */}
+          <div className="rounded-lg bg-zinc-800/50 p-4">
+            <p className="mb-3 text-sm font-medium text-zinc-300">
+              Data to publish:
+            </p>
+            <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+              <div className="flex items-center gap-2 rounded bg-zinc-700/50 px-3 py-2">
+                <Check className="h-4 w-4 text-emerald-400" />
+                <span className="text-zinc-300">
+                  Notes ({syncStats.notes})
+                </span>
+              </div>
+              <div className="flex items-center gap-2 rounded bg-zinc-700/50 px-3 py-2">
+                <Check className="h-4 w-4 text-emerald-400" />
+                <span className="text-zinc-300">
+                  Prompts ({syncStats.prompts})
+                </span>
+              </div>
+              <div className="flex items-center gap-2 rounded bg-zinc-700/50 px-3 py-2">
+                <Check className="h-4 w-4 text-emerald-400" />
+                <span className="text-zinc-300">
+                  Snippets ({syncStats.snippets})
+                </span>
+              </div>
+              <div className="flex items-center gap-2 rounded bg-zinc-700/50 px-3 py-2">
+                <Check className="h-4 w-4 text-emerald-400" />
+                <span className="text-zinc-300">
+                  Resources ({syncStats.resources})
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Token input */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-zinc-300">
+              GitHub Personal Access Token
+            </label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  type={showToken ? 'text' : 'password'}
+                  value={githubToken}
+                  onChange={(e) => {
+                    setGithubToken(e.target.value);
+                    setTokenUser(null);
+                  }}
+                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                  className="w-full rounded-lg bg-zinc-800 py-2 pl-3 pr-10 font-mono text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowToken(!showToken)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                >
+                  {showToken ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+              <button
+                onClick={handleValidateToken}
+                disabled={!githubToken.trim() || isValidatingToken}
+                className="flex items-center gap-2 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-600 disabled:opacity-50"
+              >
+                {isValidatingToken ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4" />
+                )}
+                Verify
+              </button>
+            </div>
+            {tokenUser && (
+              <p className="mt-1 text-xs text-emerald-400">
+                ✓ Authenticated as @{tokenUser}
+              </p>
+            )}
+            <p className="mt-2 text-xs text-zinc-500">
+              Token needs{' '}
+              <code className="rounded bg-zinc-800 px-1 py-0.5">repo</code>{' '}
+              scope. Create at{' '}
+              <a
+                href="https://github.com/settings/tokens/new"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-400 hover:underline"
+              >
+                github.com/settings/tokens/new
+                <ExternalLink className="ml-1 inline h-3 w-3" />
+              </a>
+            </p>
+          </div>
+
+          {/* Publish button */}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handlePublish}
+              disabled={isSyncing || !githubToken.trim()}
+              className="flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {isSyncing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Publishing...
+                </>
+              ) : (
+                <>
+                  <Rocket className="h-4 w-4" />
+                  Publish & Rebuild
+                </>
+              )}
+            </button>
+
+            {syncProgress && (
+              <span className="text-sm text-zinc-400">{syncProgress}</span>
+            )}
+          </div>
+
+          {/* Last sync info */}
+          <div className="rounded-lg bg-zinc-800/30 p-3 text-xs text-zinc-500">
+            <div className="flex items-center justify-between">
+              <span>
+                Repository:{' '}
+                <a
+                  href="https://github.com/Ariyts/my-notes-app"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-zinc-400 hover:text-emerald-400"
+                >
+                  Ariyts/my-notes-app
+                </a>
+              </span>
+              {lastSyncInfo.timestamp && (
+                <span>
+                  Last publish:{' '}
+                  {new Date(lastSyncInfo.timestamp).toLocaleString()}
+                </span>
+              )}
+            </div>
+            <p className="mt-1">
+              ⚠️ This will update the site for all users. Rebuild takes ~2-3
+              minutes.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Stats */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-        <h2 className="mb-4 text-lg font-semibold text-zinc-100">Storage Statistics</h2>
+        <h2 className="mb-4 text-lg font-semibold text-zinc-100">
+          Storage Statistics
+        </h2>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
           <div className="rounded-lg bg-zinc-800 p-4 text-center">
-            <div className="text-2xl font-bold text-emerald-400">{stats.prompts}</div>
+            <div className="text-2xl font-bold text-emerald-400">
+              {stats.prompts}
+            </div>
             <div className="text-sm text-zinc-400">Prompts</div>
           </div>
           <div className="rounded-lg bg-zinc-800 p-4 text-center">
@@ -126,20 +452,29 @@ export function Settings() {
             <div className="text-sm text-zinc-400">Notes</div>
           </div>
           <div className="rounded-lg bg-zinc-800 p-4 text-center">
-            <div className="text-2xl font-bold text-purple-400">{stats.snippets}</div>
+            <div className="text-2xl font-bold text-purple-400">
+              {stats.snippets}
+            </div>
             <div className="text-sm text-zinc-400">Snippets</div>
           </div>
           <div className="rounded-lg bg-zinc-800 p-4 text-center">
-            <div className="text-2xl font-bold text-orange-400">{stats.resources}</div>
+            <div className="text-2xl font-bold text-orange-400">
+              {stats.resources}
+            </div>
             <div className="text-sm text-zinc-400">Resources</div>
           </div>
           <div className="rounded-lg bg-zinc-800 p-4 text-center">
-            <div className="text-2xl font-bold text-pink-400">{historyCount()}</div>
+            <div className="text-2xl font-bold text-pink-400">
+              {historyCount()}
+            </div>
             <div className="text-sm text-zinc-400">Versions</div>
           </div>
         </div>
         <div className="mt-4 flex items-center justify-between text-sm text-zinc-500">
-          <span>Total storage used: <span className="text-zinc-300">{totalSize()} KB</span></span>
+          <span>
+            Total storage used:{' '}
+            <span className="text-zinc-300">{totalSize()} KB</span>
+          </span>
           <span className="flex items-center gap-2">
             <HardDrive className="h-4 w-4" />
             localStorage
@@ -167,7 +502,9 @@ export function Settings() {
                 <span className="text-sm text-zinc-500">Not available</span>
               )}
             </div>
-            <p className="mt-1 text-xs text-zinc-500">Enables offline functionality</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Enables offline functionality
+            </p>
           </div>
           <div className="rounded-lg bg-zinc-800 p-4">
             <div className="flex items-center justify-between">
@@ -181,7 +518,9 @@ export function Settings() {
               )}
             </div>
             <p className="mt-1 text-xs text-zinc-500">
-              {isPWAInstalled ? 'Running as standalone app' : 'Add to home screen for app-like experience'}
+              {isPWAInstalled
+                ? 'Running as standalone app'
+                : 'Add to home screen for app-like experience'}
             </p>
           </div>
         </div>
@@ -199,7 +538,9 @@ export function Settings() {
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
         <div className="mb-4 flex items-center gap-2">
           <Cloud className="h-5 w-5 text-blue-400" />
-          <h2 className="text-lg font-semibold text-zinc-100">GitHub Gist Sync</h2>
+          <h2 className="text-lg font-semibold text-zinc-100">
+            GitHub Gist Sync
+          </h2>
         </div>
         <div className="rounded-lg bg-zinc-800 p-4">
           <div className="flex items-center justify-between">
@@ -218,12 +559,15 @@ export function Settings() {
                 <Check className="h-4 w-4" /> Synced
               </span>
             ) : (
-              <span className="text-sm text-zinc-500">Configure in sidebar</span>
+              <span className="text-sm text-zinc-500">
+                Configure in sidebar
+              </span>
             )}
           </div>
         </div>
         <p className="mt-3 text-xs text-zinc-600">
-          Sync your encrypted data to a private GitHub Gist for backup and cross-device access.
+          Sync your encrypted data to a private GitHub Gist for backup and
+          cross-device access.
         </p>
       </div>
 
@@ -231,18 +575,25 @@ export function Settings() {
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
         <div className="mb-4 flex items-center gap-2">
           <History className="h-5 w-5 text-purple-400" />
-          <h2 className="text-lg font-semibold text-zinc-100">Version History</h2>
+          <h2 className="text-lg font-semibold text-zinc-100">
+            Version History
+          </h2>
         </div>
         <p className="text-sm text-zinc-400">
-          Pentest Hub automatically saves previous versions of your notes and prompts when you edit them.
-          You can restore any previous version from the History panel.
+          Pentest Hub automatically saves previous versions of your notes and
+          prompts when you edit them. You can restore any previous version from
+          the History panel.
         </p>
         <div className="mt-4 rounded-lg bg-zinc-800 p-4">
           <div className="flex items-center justify-between">
             <span className="text-zinc-300">Saved versions</span>
-            <span className="text-xl font-bold text-purple-400">{historyCount()}</span>
+            <span className="text-xl font-bold text-purple-400">
+              {historyCount()}
+            </span>
           </div>
-          <p className="mt-1 text-xs text-zinc-500">Up to 50 versions per item are kept</p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Up to 50 versions per item are kept
+          </p>
         </div>
       </div>
 
@@ -250,7 +601,9 @@ export function Settings() {
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
         <div className="mb-4 flex items-center gap-2">
           <Keyboard className="h-5 w-5 text-zinc-400" />
-          <h2 className="text-lg font-semibold text-zinc-100">Keyboard Shortcuts</h2>
+          <h2 className="text-lg font-semibold text-zinc-100">
+            Keyboard Shortcuts
+          </h2>
         </div>
         <div className="grid gap-2">
           {[
@@ -258,10 +611,15 @@ export function Settings() {
             { keys: '⌘/Ctrl + S', action: 'Save current note' },
             { keys: 'Escape', action: 'Close modal / search' },
             { keys: 'Drag handle', action: 'Reorder prompts' },
-          ].map(shortcut => (
-            <div key={shortcut.keys} className="flex items-center justify-between rounded-lg bg-zinc-800 px-4 py-2">
+          ].map((shortcut) => (
+            <div
+              key={shortcut.keys}
+              className="flex items-center justify-between rounded-lg bg-zinc-800 px-4 py-2"
+            >
               <span className="text-zinc-300">{shortcut.action}</span>
-              <kbd className="rounded bg-zinc-700 px-2 py-1 text-xs font-mono text-zinc-400">{shortcut.keys}</kbd>
+              <kbd className="rounded bg-zinc-700 px-2 py-1 text-xs font-mono text-zinc-400">
+                {shortcut.keys}
+              </kbd>
             </div>
           ))}
         </div>
@@ -269,7 +627,9 @@ export function Settings() {
 
       {/* Backup & Restore */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-        <h2 className="mb-4 text-lg font-semibold text-zinc-100">Backup & Restore</h2>
+        <h2 className="mb-4 text-lg font-semibold text-zinc-100">
+          Backup & Restore
+        </h2>
         <div className="flex flex-wrap gap-3">
           <button
             onClick={handleExport}
@@ -281,7 +641,12 @@ export function Settings() {
           <label className="flex cursor-pointer items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium hover:bg-blue-500">
             <Upload className="h-4 w-4" />
             Import Backup
-            <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+            <input
+              type="file"
+              accept=".json"
+              onChange={handleImport}
+              className="hidden"
+            />
           </label>
         </div>
         <p className="mt-3 text-sm text-zinc-500">
@@ -296,11 +661,12 @@ export function Settings() {
           <AlertTriangle className="h-5 w-5" />
           <h2 className="text-lg font-semibold">Danger Zone</h2>
         </div>
-        
+
         {showClearConfirm ? (
           <div className="rounded-lg bg-red-500/10 p-4">
             <p className="mb-4 text-zinc-300">
-              This will permanently delete ALL your prompts, notes, snippets, resources, and version history. This action cannot be undone.
+              This will permanently delete ALL your prompts, notes, snippets,
+              resources, and version history. This action cannot be undone.
             </p>
             <div className="flex gap-3">
               <button
@@ -337,14 +703,16 @@ export function Settings() {
         <p className="mt-3 text-sm text-zinc-400">
           Pentest Hub — Personal penetration testing knowledge base.
           <br />
-          All data is stored locally in your browser with optional encrypted cloud sync.
+          All data is stored locally in your browser with optional encrypted
+          cloud sync.
         </p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs text-zinc-600">
-          <span className="rounded bg-zinc-800 px-2 py-1">Version 2.0.0</span>
+          <span className="rounded bg-zinc-800 px-2 py-1">Version 2.1.0</span>
           <span className="rounded bg-zinc-800 px-2 py-1">PWA Ready</span>
           <span className="rounded bg-zinc-800 px-2 py-1">Offline Support</span>
           <span className="rounded bg-zinc-800 px-2 py-1">Gist Sync</span>
           <span className="rounded bg-zinc-800 px-2 py-1">Version History</span>
+          <span className="rounded bg-zinc-800 px-2 py-1">Repo Sync</span>
         </div>
       </div>
     </div>

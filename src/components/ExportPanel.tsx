@@ -28,9 +28,9 @@ export function ExportPanel({ isOpen, onClose }: ExportPanelProps) {
     setTimeout(() => setExported(null), 2000);
   };
 
-  const exportMarkdown = () => {
+  const exportMarkdown = async () => {
     setExporting('markdown');
-    const markdown = storageEnhanced.exportToMarkdown();
+    const markdown = await storageEnhanced.exportToMarkdown();
     const blob = new Blob([markdown], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

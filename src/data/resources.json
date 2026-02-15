@@ -1,0 +1,37 @@
+[
+  {
+    "id": "resource-1",
+    "title": "PayloadsAllTheThings",
+    "url": "https://github.com/swisskyrepo/PayloadsAllTheThings",
+    "category": "payloads",
+    "note": "Comprehensive payload collection for web attacks"
+  },
+  {
+    "id": "resource-2",
+    "title": "HackTricks",
+    "url": "https://book.hacktricks.xyz/",
+    "category": "cheatsheets",
+    "note": "Massive pentesting wiki"
+  },
+  {
+    "id": "resource-3",
+    "title": "GTFOBins",
+    "url": "https://gtfobins.github.io/",
+    "category": "cheatsheets",
+    "note": "Unix binaries for privilege escalation"
+  },
+  {
+    "id": "resource-4",
+    "title": "LOLBAS",
+    "url": "https://lolbas-project.github.io/",
+    "category": "cheatsheets",
+    "note": "Living Off The Land Binaries (Windows)"
+  },
+  {
+    "id": "resource-5",
+    "title": "SecLists",
+    "url": "https://github.com/danielmiessler/SecLists",
+    "category": "wordlists",
+    "note": "The wordlist collection"
+  }
+]

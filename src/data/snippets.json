@@ -1,0 +1,66 @@
+[
+  {
+    "id": "snippet-1",
+    "title": "Quick Port Scan",
+    "command": "nmap -sC -sV -oA scan TARGET",
+    "tool": "nmap",
+    "description": "Basic service detection with default scripts",
+    "tags": ["recon", "ports"]
+  },
+  {
+    "id": "snippet-2",
+    "title": "Full TCP Scan",
+    "command": "nmap -p- -T4 --min-rate=1000 -oA full_tcp TARGET",
+    "tool": "nmap",
+    "description": "Scan all 65535 ports",
+    "tags": ["recon", "thorough"]
+  },
+  {
+    "id": "snippet-3",
+    "title": "Directory Bruteforce",
+    "command": "ffuf -u https://TARGET/FUZZ -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -mc 200,301,302,403 -o output.json",
+    "tool": "ffuf",
+    "description": "Directory enumeration with common wordlist",
+    "tags": ["web", "bruteforce"]
+  },
+  {
+    "id": "snippet-4",
+    "title": "Subdomain Bruteforce",
+    "command": "ffuf -u https://FUZZ.TARGET.com -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt -mc 200",
+    "tool": "ffuf",
+    "description": "Virtual host discovery",
+    "tags": ["recon", "subdomains"]
+  },
+  {
+    "id": "snippet-5",
+    "title": "SQLMap Basic",
+    "command": "sqlmap -u \"https://target.com/page?id=1\" --batch --risk=3 --level=5",
+    "tool": "sqlmap",
+    "description": "Automated SQL injection testing",
+    "tags": ["sqli", "auto"]
+  },
+  {
+    "id": "snippet-6",
+    "title": "Nuclei Full Scan",
+    "command": "nuclei -u https://TARGET -t ~/nuclei-templates/ -severity critical,high -o results.txt",
+    "tool": "nuclei",
+    "description": "Vulnerability scanning with templates",
+    "tags": ["vuln", "auto"]
+  },
+  {
+    "id": "snippet-7",
+    "title": "Reverse Shell Listener",
+    "command": "nc -lvnp 4444",
+    "tool": "netcat",
+    "description": "Basic netcat listener",
+    "tags": ["shell", "listener"]
+  },
+  {
+    "id": "snippet-8",
+    "title": "Python HTTP Server",
+    "command": "python3 -m http.server 8080",
+    "tool": "python",
+    "description": "Quick file transfer server",
+    "tags": ["transfer", "utility"]
+  }
+]
