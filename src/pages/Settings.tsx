@@ -142,16 +142,19 @@ export function Settings() {
       );
 
       if (result.success) {
+        const filesInfo = result.filesUpdated !== undefined
+          ? `${result.filesUpdated} file(s) updated`
+          : '';
         setMessage({
           type: 'success',
-          text: `Published! Site rebuilding in 2-3 minutes. ${result.commitUrl ? `Commit: ${result.commitSha}` : ''}`,
+          text: `Published! ${filesInfo}. Site rebuilding in 2-3 minutes.`,
         });
 
         // Clear token after successful publish
         setGithubToken('');
         setTokenUser(null);
         setShowChangelog(false);
-        
+
         // Reset to show new published state
         window.location.reload();
       } else {
