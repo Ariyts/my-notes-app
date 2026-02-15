@@ -37,6 +37,9 @@ import {
   Table2,
   ExternalLink,
   Tag,
+  FolderPlus,
+  X,
+  Pencil,
 } from 'lucide-react';
 import {
   DndContext,
@@ -216,6 +219,85 @@ export function DynamicContent() {
     setSelectedItem(null);
     setHasUnsaved(false);
     setViewMode('edit');
+  };
+
+  // Create item in specific folder
+  const handleCreateInFolder = (folderPath: string) => {
+    const newItem: Record<string, unknown> = {
+      id: generateContentId(),
+      contentTypeId: typeId,
+      updatedAt: new Date().toISOString(),
+      title: 'Untitled',
+      category: folderPath,
+      content: `# New Item\n\nStart writing here...\n\n## Section\n\n- Point 1\n- Point 2`,
+      tags: [],
+    };
+
+    typeConfig.fields.forEach(field => {
+      if (!newItem[field.name] && field.default) {
+        newItem[field.name] = field.default;
+      }
+    });
+
+    setEditData(newItem);
+    setIsEditing(true);
+    setSelectedItem(null);
+    setHasUnsaved(false);
+    setViewMode('edit');
+    setExpandedFolders(prev => new Set([...prev, folderPath.split('/')[0]]));
+  };
+
+  // Create new folder
+  const handleCreateFolder = (folderName: string) => {
+    const newItem: Record<string, unknown> = {
+      id: generateContentId(),
+      contentTypeId: typeId,
+      updatedAt: new Date().toISOString(),
+      title: 'Welcome to ' + folderName,
+      category: folderName,
+      content: `# Welcome to ${folderName}\n\nThis is a new folder. Start organizing your items here!`,
+      tags: [],
+    };
+
+    saveItems([...items, newItem]);
+    setEditData(newItem);
+    setSelectedItem(newItem);
+    setIsEditing(false);
+    setHasUnsaved(false);
+    setExpandedFolders(prev => new Set([...prev, folderName.split('/')[0]]));
+  };
+
+  // Rename folder (update all items in that folder)
+  const handleRenameFolder = (oldPath: string, newPath: string) => {
+    const categoryField = typeConfig.categoryField || 'category';
+    const newItems = items.map(item => {
+      const category = String(item[categoryField] || '');
+      if (category === oldPath) {
+        return { ...item, [categoryField]: newPath, updatedAt: new Date().toISOString() };
+      }
+      if (category.startsWith(oldPath + '/')) {
+        return { ...item, [categoryField]: category.replace(oldPath + '/', newPath + '/'), updatedAt: new Date().toISOString() };
+      }
+      return item;
+    });
+    saveItems(newItems);
+  };
+
+  // Rename item
+  const handleRenameItem = (itemId: string, newTitle: string) => {
+    const newItems = items.map(item => {
+      if (item.id === itemId) {
+        return { ...item, title: newTitle, updatedAt: new Date().toISOString() };
+      }
+      return item;
+    });
+    saveItems(newItems);
+    
+    // Update selectedItem if it's the renamed item
+    if (selectedItem?.id === itemId) {
+      setSelectedItem({ ...selectedItem, title: newTitle });
+      setEditData({ ...editData, title: newTitle });
+    }
   };
 
   // Select item
@@ -442,6 +524,10 @@ export function DynamicContent() {
           fileInputRef={fileInputRef}
           handleCreate={handleCreate}
           handleCreateFromTemplate={handleCreateFromTemplate}
+          handleCreateInFolder={handleCreateInFolder}
+          handleCreateFolder={handleCreateFolder}
+          handleRenameFolder={handleRenameFolder}
+          handleRenameItem={handleRenameItem}
         />
       )}
 
@@ -626,8 +712,22 @@ function FolderView({
   fileInputRef: React.RefObject<HTMLInputElement>;
   handleCreate: () => void;
   handleCreateFromTemplate: (t: { name: string; category: string; content: string }) => void;
+  handleCreateInFolder: (folderPath: string) => void;
+  handleCreateFolder: (folderName: string) => void;
+  handleRenameFolder: (oldPath: string, newPath: string) => void;
+  handleRenameItem: (itemId: string, newTitle: string) => void;
 }) {
   const categoryField = config.categoryField || 'category';
+
+  // State for new folder input
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+
+  // State for renaming
+  const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
+  const [renamingFolderValue, setRenamingFolderValue] = useState('');
+  const [renamingItem, setRenamingItem] = useState<string | null>(null);
+  const [renamingItemValue, setRenamingItemValue] = useState('');
 
   // Build folder tree
   const tree = useMemo(() => {
@@ -664,6 +764,30 @@ function FolderView({
     { name: 'Research', category: 'Research', content: '# Research Topic\n\n## Overview\n\n## Key Points\n\n- \n\n## References\n\n- ' },
   ];
 
+  // Handler for creating folder
+  const onCreateFolder = () => {
+    if (!newFolderName.trim()) return;
+    handleCreateFolder(newFolderName.trim());
+    setNewFolderName('');
+    setShowNewFolder(false);
+  };
+
+  // Handler for renaming folder
+  const onRenameFolder = (oldPath: string) => {
+    if (!renamingFolderValue.trim()) return;
+    handleRenameFolder(oldPath, renamingFolderValue.trim());
+    setRenamingFolder(null);
+    setRenamingFolderValue('');
+  };
+
+  // Handler for renaming item
+  const onRenameItem = (itemId: string) => {
+    if (!renamingItemValue.trim()) return;
+    handleRenameItem(itemId, renamingItemValue.trim());
+    setRenamingItem(null);
+    setRenamingItemValue('');
+  };
+
   return (
     <div className="flex h-[calc(100vh-10rem)] gap-4">
       {/* Sidebar */}
@@ -683,6 +807,13 @@ function FolderView({
                 <Archive className="h-4 w-4" />
               </button>
               <button
+                onClick={() => setShowNewFolder(true)}
+                className="rounded-lg bg-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-600"
+                title="New Folder"
+              >
+                <FolderPlus className="h-4 w-4" />
+              </button>
+              <button
                 onClick={handleCreate}
                 className="rounded-lg bg-emerald-600 p-1.5 text-white hover:bg-emerald-500"
                 title="New Item"
@@ -698,6 +829,42 @@ function FolderView({
               </button>
             </div>
           </div>
+
+          {/* New Folder Input */}
+          {showNewFolder && (
+            <div className="mb-3 rounded-lg bg-zinc-800/50 p-3">
+              <div className="text-xs font-medium text-zinc-400 mb-2">Create New Folder</div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Folder name (e.g., Work/Projects)"
+                  className="flex-1 rounded bg-zinc-700 px-2 py-1.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') onCreateFolder();
+                    if (e.key === 'Escape') { setShowNewFolder(false); setNewFolderName(''); }
+                  }}
+                  autoFocus
+                />
+                <button
+                  onClick={onCreateFolder}
+                  className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500"
+                >
+                  Create
+                </button>
+                <button
+                  onClick={() => { setShowNewFolder(false); setNewFolderName(''); }}
+                  className="rounded bg-zinc-700 p-1.5 text-zinc-400 hover:text-zinc-200"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="text-[10px] text-zinc-500 mt-1.5">
+                Use / for subfolders: e.g., "Work/Projects"
+              </div>
+            </div>
+          )}
 
           {/* Import/Export Panel */}
           {showImportExport && (
@@ -745,48 +912,134 @@ function FolderView({
         <div className="flex-1 overflow-y-auto p-2">
           {Object.entries(tree).sort().map(([rootCategory, subCategories]) => (
             <div key={rootCategory} className="mb-1">
-              <button
-                onClick={() => toggleFolder(rootCategory)}
-                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
-              >
-                {expandedFolders.has(rootCategory) ? (
-                  <>
-                    <ChevronDown className="h-3 w-3 text-zinc-500" />
-                    <FolderOpen className="h-4 w-4 text-amber-500" />
-                  </>
-                ) : (
-                  <>
-                    <ChevronRight className="h-3 w-3 text-zinc-500" />
-                    <Folder className="h-4 w-4 text-amber-500/70" />
-                  </>
-                )}
-                <span>{rootCategory}</span>
-                <span className="ml-auto text-xs text-zinc-600">
+              <div className="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-300 hover:bg-zinc-800 group">
+                <button
+                  onClick={() => toggleFolder(rootCategory)}
+                  className="flex items-center gap-2 flex-1"
+                >
+                  {expandedFolders.has(rootCategory) ? (
+                    <>
+                      <ChevronDown className="h-3 w-3 text-zinc-500" />
+                      <FolderOpen className="h-4 w-4 text-amber-500" />
+                    </>
+                  ) : (
+                    <>
+                      <ChevronRight className="h-3 w-3 text-zinc-500" />
+                      <Folder className="h-4 w-4 text-amber-500/70" />
+                    </>
+                  )}
+                  {renamingFolder === rootCategory ? (
+                    <input
+                      value={renamingFolderValue}
+                      onChange={(e) => setRenamingFolderValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') onRenameFolder(rootCategory);
+                        if (e.key === 'Escape') { setRenamingFolder(null); setRenamingFolderValue(''); }
+                      }}
+                      onBlur={() => onRenameFolder(rootCategory)}
+                      className="bg-zinc-700 px-1 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span>{rootCategory}</span>
+                  )}
+                </button>
+                <span className="text-xs text-zinc-600 mr-1">
                   {Object.values(subCategories).flat().length}
                 </span>
-              </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleCreateInFolder(rootCategory); }}
+                  className="opacity-0 group-hover:opacity-100 rounded p-1 text-emerald-400 hover:bg-emerald-500/20 transition-opacity"
+                  title="Add item to this folder"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setRenamingFolder(rootCategory); setRenamingFolderValue(rootCategory); }}
+                  className="opacity-0 group-hover:opacity-100 rounded p-1 text-zinc-400 hover:bg-zinc-700 transition-opacity"
+                  title="Rename folder"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              </div>
 
               {expandedFolders.has(rootCategory) && (
                 <div className="ml-3 border-l border-zinc-800 pl-2">
                   {Object.entries(subCategories).sort().map(([subCategory, categoryItems]) => (
                     <div key={subCategory} className="mt-1">
                       {subCategory !== '_root' && (
-                        <div className="px-2 py-1 text-xs font-medium text-zinc-500">{subCategory}</div>
+                        <div className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-zinc-500 group">
+                          <Folder className="h-3 w-3 text-amber-500/50" />
+                          {renamingFolder === `${rootCategory}/${subCategory}` ? (
+                            <input
+                              value={renamingFolderValue}
+                              onChange={(e) => setRenamingFolderValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') onRenameFolder(`${rootCategory}/${subCategory}`);
+                                if (e.key === 'Escape') { setRenamingFolder(null); setRenamingFolderValue(''); }
+                              }}
+                              onBlur={() => onRenameFolder(`${rootCategory}/${subCategory}`)}
+                              className="bg-zinc-700 px-1 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 flex-1"
+                              autoFocus
+                            />
+                          ) : (
+                            <>
+                              <span className="flex-1">{subCategory}</span>
+                              <button
+                                onClick={() => handleCreateInFolder(`${rootCategory}/${subCategory}`)}
+                                className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-emerald-400 hover:bg-emerald-500/20 transition-opacity"
+                                title="Add item to this subfolder"
+                              >
+                                <Plus className="h-3 w-3" />
+                              </button>
+                              <button
+                                onClick={() => { setRenamingFolder(`${rootCategory}/${subCategory}`); setRenamingFolderValue(subCategory); }}
+                                className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-zinc-400 hover:bg-zinc-700 transition-opacity"
+                                title="Rename subfolder"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       )}
                       {categoryItems.map(item => (
-                        <button
+                        <div
                           key={String(item.id)}
-                          onClick={() => onSelect(item)}
                           className={cn(
-                            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors",
+                            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors group",
                             selectedItem?.id === item.id
                               ? "bg-emerald-600/20 text-emerald-400"
                               : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
                           )}
                         >
                           <FileText className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">{String(item['title'] || 'Untitled')}</span>
-                        </button>
+                          {renamingItem === item.id ? (
+                            <input
+                              value={renamingItemValue}
+                              onChange={(e) => setRenamingItemValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') onRenameItem(String(item.id));
+                                if (e.key === 'Escape') { setRenamingItem(null); setRenamingItemValue(''); }
+                              }}
+                              onBlur={() => onRenameItem(String(item.id))}
+                              className="bg-zinc-700 px-1 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 flex-1"
+                              autoFocus
+                            />
+                          ) : (
+                            <>
+                              <span className="truncate flex-1 cursor-pointer" onClick={() => onSelect(item)}>{String(item['title'] || 'Untitled')}</span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setRenamingItem(String(item.id)); setRenamingItemValue(String(item['title'] || 'Untitled')); }}
+                                className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-zinc-400 hover:bg-zinc-700 transition-opacity"
+                                title="Rename item"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       ))}
                     </div>
                   ))}

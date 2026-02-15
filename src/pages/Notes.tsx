@@ -7,7 +7,7 @@ import {
   Plus, Search, Trash2, FileText, Folder, FolderOpen,
   Edit3, Eye, ChevronRight, ChevronDown, Copy, Check, Columns,
   FileCode, LayoutTemplate, Download, Upload, Archive, FileDown, FileUp,
-  FolderPlus, X
+  FolderPlus, X, Pencil
 } from 'lucide-react';
 import { useData } from '../lib/DataContext';
 import { Note } from '../types';
@@ -58,6 +58,12 @@ export function Notes() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  
+  // Renaming state
+  const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
+  const [renamingFolderValue, setRenamingFolderValue] = useState('');
+  const [renamingNote, setRenamingNote] = useState<string | null>(null);
+  const [renamingNoteValue, setRenamingNoteValue] = useState('');
   
   // Form state for editing
   const [editTitle, setEditTitle] = useState('');
@@ -143,6 +149,25 @@ export function Notes() {
   const handleFolderClick = (folderPath: string) => {
     // Create note directly in this folder
     handleCreateBlank(folderPath);
+  };
+
+  // Rename folder (update all notes in that folder)
+  const handleRenameFolder = (oldPath: string, newPath: string) => {
+    notes.forEach(note => {
+      if (note.category === oldPath) {
+        notesApi.update(note.id, { category: newPath });
+      } else if (note.category.startsWith(oldPath + '/')) {
+        notesApi.update(note.id, { category: note.category.replace(oldPath + '/', newPath + '/') });
+      }
+    });
+  };
+
+  // Rename note
+  const handleRenameNote = (noteId: string, newTitle: string) => {
+    notesApi.update(noteId, { title: newTitle });
+    if (selectedNoteId === noteId) {
+      setEditTitle(newTitle);
+    }
   };
 
   const handleSave = useCallback(() => {
@@ -476,7 +501,22 @@ export function Notes() {
                       <Folder className="h-4 w-4 text-amber-500/70" />
                     </>
                   )}
-                  <span>{rootCategory}</span>
+                  {renamingFolder === rootCategory ? (
+                    <input
+                      value={renamingFolderValue}
+                      onChange={(e) => setRenamingFolderValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { handleRenameFolder(rootCategory, renamingFolderValue); setRenamingFolder(null); }
+                        if (e.key === 'Escape') { setRenamingFolder(null); }
+                      }}
+                      onBlur={() => { handleRenameFolder(rootCategory, renamingFolderValue); setRenamingFolder(null); }}
+                      className="bg-zinc-700 px-1 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span>{rootCategory}</span>
+                  )}
                 </button>
                 <span className="text-xs text-zinc-600 mr-1">
                   {Object.values(subCategories).flat().length}
@@ -488,6 +528,13 @@ export function Notes() {
                 >
                   <Plus className="h-3.5 w-3.5" />
                 </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setRenamingFolder(rootCategory); setRenamingFolderValue(rootCategory); }}
+                  className="opacity-0 group-hover:opacity-100 rounded p-1 text-zinc-400 hover:bg-zinc-700 transition-opacity"
+                  title="Rename folder"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
               </div>
 
               {expandedFolders.has(rootCategory) && (
@@ -497,30 +544,75 @@ export function Notes() {
                       {subCategory !== '_root' && (
                         <div className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-zinc-500 group">
                           <Folder className="h-3 w-3 text-amber-500/50" />
-                          <span className="flex-1">{subCategory}</span>
-                          <button
-                            onClick={() => handleFolderClick(`${rootCategory}/${subCategory}`)}
-                            className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-emerald-400 hover:bg-emerald-500/20 transition-opacity"
-                            title="Add note to this subfolder"
-                          >
-                            <Plus className="h-3 w-3" />
-                          </button>
+                          {renamingFolder === `${rootCategory}/${subCategory}` ? (
+                            <input
+                              value={renamingFolderValue}
+                              onChange={(e) => setRenamingFolderValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') { handleRenameFolder(`${rootCategory}/${subCategory}`, `${rootCategory}/${renamingFolderValue}`); setRenamingFolder(null); }
+                                if (e.key === 'Escape') { setRenamingFolder(null); }
+                              }}
+                              onBlur={() => { handleRenameFolder(`${rootCategory}/${subCategory}`, `${rootCategory}/${renamingFolderValue}`); setRenamingFolder(null); }}
+                              className="bg-zinc-700 px-1 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 flex-1"
+                              autoFocus
+                            />
+                          ) : (
+                            <>
+                              <span className="flex-1">{subCategory}</span>
+                              <button
+                                onClick={() => handleFolderClick(`${rootCategory}/${subCategory}`)}
+                                className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-emerald-400 hover:bg-emerald-500/20 transition-opacity"
+                                title="Add note to this subfolder"
+                              >
+                                <Plus className="h-3 w-3" />
+                              </button>
+                              <button
+                                onClick={() => { setRenamingFolder(`${rootCategory}/${subCategory}`); setRenamingFolderValue(subCategory); }}
+                                className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-zinc-400 hover:bg-zinc-700 transition-opacity"
+                                title="Rename subfolder"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       )}
                       {categoryNotes.map(note => (
-                        <button
+                        <div
                           key={note.id}
-                          onClick={() => selectNote(note)}
                           className={cn(
-                            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors",
+                            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors group",
                             selectedNoteId === note.id 
                               ? "bg-emerald-600/20 text-emerald-400" 
                               : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
                           )}
                         >
                           <FileText className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">{note.title}</span>
-                        </button>
+                          {renamingNote === note.id ? (
+                            <input
+                              value={renamingNoteValue}
+                              onChange={(e) => setRenamingNoteValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') { handleRenameNote(note.id, renamingNoteValue); setRenamingNote(null); }
+                                if (e.key === 'Escape') { setRenamingNote(null); }
+                              }}
+                              onBlur={() => { handleRenameNote(note.id, renamingNoteValue); setRenamingNote(null); }}
+                              className="bg-zinc-700 px-1 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 flex-1"
+                              autoFocus
+                            />
+                          ) : (
+                            <>
+                              <span className="truncate flex-1 cursor-pointer" onClick={() => selectNote(note)}>{note.title}</span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setRenamingNote(note.id); setRenamingNoteValue(note.title); }}
+                                className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-zinc-400 hover:bg-zinc-700 transition-opacity"
+                                title="Rename note"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       ))}
                     </div>
                   ))}
