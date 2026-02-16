@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   Shield, 
@@ -12,10 +13,90 @@ import {
   Cloud,
   FileDown,
   Layers,
+  Trash2,
+  AlertTriangle,
+  X,
+  Check,
 } from 'lucide-react';
 import { cn } from '../utils/cn';
 import { gistSync } from '../lib/storage-enhanced';
 import { useData } from '../lib/DataContext';
+
+// Clear Storage Confirmation Modal
+function ClearStorageModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="w-full max-w-sm rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+          <div className="flex items-center gap-2 text-red-400">
+            <AlertTriangle className="h-5 w-5" />
+            <h2 className="text-lg font-bold">Clear All Data</h2>
+          </div>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        
+        {/* Content */}
+        <div className="px-5 py-4 space-y-4">
+          <p className="text-sm text-zinc-300">
+            This will permanently delete all your local data, including:
+          </p>
+          <ul className="space-y-1.5 text-sm text-zinc-400">
+            <li className="flex items-center gap-2">
+              <span className="h-1 w-1 rounded-full bg-zinc-600" />
+              All prompts and their categories
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-1 w-1 rounded-full bg-zinc-600" />
+              All notes and folders
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-1 w-1 rounded-full bg-zinc-600" />
+              All code snippets
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-1 w-1 rounded-full bg-zinc-600" />
+              All saved resources
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-1 w-1 rounded-full bg-zinc-600" />
+              Custom content types
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-1 w-1 rounded-full bg-zinc-600" />
+              Settings and preferences
+            </li>
+          </ul>
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
+            <p className="text-xs text-amber-400">
+              ⚠️ This action cannot be undone. Make sure you have a backup if you want to restore your data later.
+            </p>
+          </div>
+        </div>
+        
+        {/* Actions */}
+        <div className="flex justify-end gap-2 border-t border-zinc-800 px-5 py-4">
+          <button
+            onClick={onClose}
+            className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100 transition-colors"
+          >
+            <X className="h-4 w-4" />
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 transition-colors"
+          >
+            <Trash2 className="h-4 w-4" />
+            Clear All Data
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Icon mapping for dynamic types
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -50,6 +131,16 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
   const isGistConnected = !!gistConfig.gistId;
   const { data } = useData();
   const types = data.contentTypes;
+  const [showClearModal, setShowClearModal] = useState(false);
+
+  const handleClearStorage = () => {
+    // Clear all localStorage
+    localStorage.clear();
+    // Clear sessionStorage as well
+    sessionStorage.clear();
+    // Reload the page to reset all state
+    window.location.reload();
+  };
 
   return (
     <div className="flex h-screen w-64 flex-col border-r border-zinc-800 bg-zinc-950">
@@ -121,6 +212,13 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
       {/* Bottom Actions */}
       <div className="border-t border-zinc-800 p-3 space-y-1">
         <button 
+          onClick={() => setShowClearModal(true)}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-500 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+        >
+          <Trash2 className="h-4 w-4" />
+          <span>Clear Data</span>
+        </button>
+        <button 
           onClick={onOpenGist}
           className={cn(
             "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
@@ -183,6 +281,14 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
           Works offline • PWA Ready
         </p>
       </div>
+
+      {/* Clear Storage Modal */}
+      {showClearModal && (
+        <ClearStorageModal
+          onClose={() => setShowClearModal(false)}
+          onConfirm={handleClearStorage}
+        />
+      )}
     </div>
   );
 }
