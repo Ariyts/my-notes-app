@@ -1,10 +1,14 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Plus, Search, Trash2, ExternalLink, Link as LinkIcon, Edit2, Globe, CheckCircle, XCircle, RefreshCw, Filter, X, Check, Pencil } from 'lucide-react';
+import { Plus, Search, Trash2, ExternalLink, Link as LinkIcon, Edit2, Globe, CheckCircle, XCircle, RefreshCw, Filter, X, Check, Pencil, Settings2 } from 'lucide-react';
 import { useData } from '../lib/DataContext';
 import { Resource } from '../types';
 import { cn } from '../utils/cn';
 
-const RESOURCE_CATEGORIES = [
+// Storage key for custom categories
+const CATEGORIES_STORAGE_KEY = 'pentest-hub-resource-categories';
+
+// Default categories
+const DEFAULT_CATEGORIES = [
   { value: 'tools', label: 'Tools', icon: '🔧' },
   { value: 'cheatsheets', label: 'Cheat Sheets', icon: '📋' },
   { value: 'wordlists', label: 'Wordlists', icon: '📝' },
@@ -17,8 +21,128 @@ const RESOURCE_CATEGORIES = [
   { value: 'other', label: 'Other', icon: '📎' },
 ];
 
-const getCategoryInfo = (category: string) => {
-  return RESOURCE_CATEGORIES.find(c => c.value === category.toLowerCase()) || RESOURCE_CATEGORIES[RESOURCE_CATEGORIES.length - 1];
+// Load categories from localStorage
+function loadCategories() {
+  const saved = localStorage.getItem(CATEGORIES_STORAGE_KEY);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      return DEFAULT_CATEGORIES.map(def => {
+        const found = parsed.find((p: any) => p.value === def.value);
+        return found || def;
+      }).concat(parsed.filter((p: any) => !DEFAULT_CATEGORIES.find(d => d.value === p.value)));
+    } catch {
+      return DEFAULT_CATEGORIES;
+    }
+  }
+  return DEFAULT_CATEGORIES;
+}
+
+// Category Editor
+function CategoryEditor({
+  categories,
+  onSave,
+  onClose,
+}: {
+  categories: { value: string; label: string; icon: string }[];
+  onSave: (categories: { value: string; label: string; icon: string }[]) => void;
+  onClose: () => void;
+}) {
+  const [editCategories, setEditCategories] = useState(categories);
+  const [newLabel, setNewLabel] = useState('');
+  const [newIcon, setNewIcon] = useState('📄');
+
+  const icons = ['📄', '🔧', '📋', '📝', '💉', '🎯', '📚', '✍️', '🧪', '🚩', '📎', '🔗', '💡', '🎓', '💻', '🔒', '🔑', '⚡', '🌐'];
+
+  const addCategory = () => {
+    if (newLabel.trim()) {
+      const value = newLabel.trim().toLowerCase().replace(/[^a-z0-9]/g, '-');
+      if (!editCategories.find(c => c.value === value)) {
+        setEditCategories(prev => [...prev, { value, label: newLabel.trim(), icon: newIcon }]);
+        setNewLabel('');
+        setNewIcon('📄');
+      }
+    }
+  };
+
+  const removeCategory = (value: string) => {
+    if (value === 'other') return; // Don't allow removing 'other'
+    setEditCategories(prev => prev.filter(c => c.value !== value));
+  };
+
+  return (
+    <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-4 space-y-4 max-w-md">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-zinc-100">Manage Categories</h3>
+        <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="space-y-2 max-h-[300px] overflow-y-auto">
+        {editCategories.map((cat) => (
+          <div key={cat.value} className="flex items-center gap-2 p-2 rounded-lg bg-zinc-800">
+            <select
+              value={cat.icon}
+              onChange={(e) => setEditCategories(prev => prev.map(c => c.value === cat.value ? { ...c, icon: e.target.value } : c))}
+              className="text-lg bg-transparent border-none focus:outline-none"
+            >
+              {icons.map(i => <option key={i} value={i}>{i}</option>)}
+            </select>
+            <input
+              value={cat.label}
+              onChange={(e) => setEditCategories(prev => prev.map(c => c.value === cat.value ? { ...c, label: e.target.value } : c))}
+              className="flex-1 bg-transparent text-zinc-100 text-sm focus:outline-none"
+            />
+            {cat.value !== 'other' && (
+              <button onClick={() => removeCategory(cat.value)} className="text-zinc-500 hover:text-red-400">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2 pt-2 border-t border-zinc-700">
+        <select value={newIcon} onChange={(e) => setNewIcon(e.target.value)} className="text-lg bg-zinc-800 rounded px-2">
+          {icons.map(i => <option key={i} value={i}>{i}</option>)}
+        </select>
+        <input
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCategory(); }}}
+          placeholder="New category..."
+          className="flex-1 rounded bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+        <button onClick={addCategory} disabled={!newLabel.trim()} className="rounded bg-emerald-600 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-50">
+          <Plus className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-100">Cancel</button>
+        <button onClick={() => { onSave(editCategories); onClose(); }} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500">Save</button>
+      </div>
+    </div>
+  );
+}
+
+// Delete Confirmation
+function DeleteConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div className="flex items-center gap-1">
+      <button onClick={onConfirm} className="rounded-lg bg-red-600 p-1.5 text-white hover:bg-red-500" title="Confirm">
+        <Check className="h-4 w-4" />
+      </button>
+      <button onClick={onCancel} className="rounded-lg bg-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-600" title="Cancel">
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+const getCategoryInfo = (category: string, categories: { value: string; label: string; icon: string }[]) => {
+  return categories.find(c => c.value === category.toLowerCase()) || categories[categories.length - 1];
 };
 
 // Inline Edit Component
@@ -84,10 +208,12 @@ function NewResourceForm({
   onSave, 
   onCancel,
   defaultCategory = 'tools',
+  categories,
 }: {
   onSave: (data: { title: string; url: string; category: string; note: string }) => void;
   onCancel: () => void;
   defaultCategory?: string;
+  categories: { value: string; label: string; icon: string }[];
 }) {
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
@@ -140,7 +266,7 @@ function NewResourceForm({
           onChange={(e) => setCategory(e.target.value)}
           className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100 focus:border-emerald-500 focus:outline-none"
         >
-          {RESOURCE_CATEGORIES.map(cat => (
+          {categories.map(cat => (
             <option key={cat.value} value={cat.value}>
               {cat.icon} {cat.label}
             </option>
@@ -181,6 +307,7 @@ function ResourceCard({
   onDelete,
   onRename,
   onCheckLink,
+  categories,
 }: {
   resource: Resource;
   linkStatus?: 'checking' | 'ok' | 'error';
@@ -188,8 +315,10 @@ function ResourceCard({
   onDelete: () => void;
   onRename: (newTitle: string) => void;
   onCheckLink: () => void;
+  categories: { value: string; label: string; icon: string }[];
 }) {
   const [isRenaming, setIsRenaming] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const getHostname = (url: string) => {
     try {
@@ -198,6 +327,8 @@ function ResourceCard({
       return url;
     }
   };
+
+  const catInfo = getCategoryInfo(resource.category, categories);
 
   return (
     <div className="group rounded-xl border border-zinc-800 bg-zinc-900 p-4 transition-all hover:border-zinc-700">
@@ -261,30 +392,36 @@ function ResourceCard({
 
       <div className="mt-3 flex items-center justify-between">
         <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">
-          {resource.category}
+          {catInfo.icon} {catInfo.label}
         </span>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button 
-            onClick={() => setIsRenaming(true)}
-            className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-blue-400"
-            title="Rename"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          <button 
-            onClick={onEdit}
-            className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100"
-            title="Edit"
-          >
-            <Edit2 className="h-3.5 w-3.5" />
-          </button>
-          <button 
-            onClick={onDelete}
-            className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-red-400"
-            title="Delete"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {isDeleting ? (
+            <DeleteConfirm onConfirm={onDelete} onCancel={() => setIsDeleting(false)} />
+          ) : (
+            <>
+              <button 
+                onClick={() => setIsRenaming(true)}
+                className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-blue-400"
+                title="Rename"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button 
+                onClick={onEdit}
+                className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100"
+                title="Edit"
+              >
+                <Edit2 className="h-3.5 w-3.5" />
+              </button>
+              <button 
+                onClick={() => setIsDeleting(true)}
+                className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-red-400"
+                title="Delete"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -301,11 +438,16 @@ export function Resources() {
   const [createForCategory, setCreateForCategory] = useState('tools');
   const [isEditing, setIsEditing] = useState<Resource | null>(null);
   const [linkStatus, setLinkStatus] = useState<Record<string, 'checking' | 'ok' | 'error'>>({});
+  const [categories, setCategories] = useState(loadCategories);
+  const [showCategoryEditor, setShowCategoryEditor] = useState(false);
+
+  // Save categories to localStorage
+  useEffect(() => {
+    localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(categories));
+  }, [categories]);
 
   const handleDelete = (id: string) => {
-    if (confirm('Delete this resource?')) {
-      resourcesApi.delete(id);
-    }
+    resourcesApi.delete(id);
   };
 
   const handleRename = (id: string, newTitle: string) => {
@@ -426,8 +568,8 @@ export function Resources() {
       </div>
 
       {/* Category Pills */}
-      <div className="flex flex-wrap gap-2">
-        {RESOURCE_CATEGORIES.map(cat => {
+      <div className="flex flex-wrap items-center gap-2">
+        {categories.map(cat => {
           const count = resources.filter(r => r.category.toLowerCase() === cat.value).length;
           if (count === 0) return null;
           return (
@@ -447,7 +589,25 @@ export function Resources() {
             </button>
           );
         })}
+        <button
+          onClick={() => setShowCategoryEditor(true)}
+          className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-500 hover:text-emerald-400 hover:border-emerald-500/50"
+          title="Manage categories"
+        >
+          <Settings2 className="h-4 w-4" />
+        </button>
       </div>
+
+      {/* Category Editor Modal */}
+      {showCategoryEditor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <CategoryEditor
+            categories={categories}
+            onSave={(newCategories) => setCategories(newCategories)}
+            onClose={() => setShowCategoryEditor(false)}
+          />
+        </div>
+      )}
 
       {/* New Resource Form */}
       {isCreating && (
@@ -455,13 +615,14 @@ export function Resources() {
           onSave={handleCreate}
           onCancel={() => setIsCreating(false)}
           defaultCategory={createForCategory}
+          categories={categories}
         />
       )}
 
       {/* Resources List */}
       <div className="space-y-6">
         {Object.entries(groupedResources).sort().map(([category, categoryResources]) => {
-          const catInfo = getCategoryInfo(category);
+          const catInfo = getCategoryInfo(category, categories);
           return (
             <div key={category}>
               <div className="mb-3 flex items-center justify-between">
@@ -493,6 +654,7 @@ export function Resources() {
                     onDelete={() => handleDelete(resource.id)}
                     onRename={(newTitle) => handleRename(resource.id, newTitle)}
                     onCheckLink={() => checkLink(resource.id, resource.url)}
+                    categories={categories}
                   />
                 ))}
               </div>
@@ -550,7 +712,7 @@ export function Resources() {
                   defaultValue={isEditing?.category || 'tools'}
                   className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-zinc-100 focus:border-emerald-500 focus:outline-none"
                 >
-                  {RESOURCE_CATEGORIES.map(cat => (
+                  {categories.map(cat => (
                     <option key={cat.value} value={cat.value}>
                       {cat.icon} {cat.label}
                     </option>
