@@ -4,7 +4,11 @@ import { useData } from '../lib/DataContext';
 import { Snippet } from '../types';
 import { cn } from '../utils/cn';
 
-const TOOL_PRESETS = [
+// Storage key for custom tools
+const TOOLS_STORAGE_KEY = 'pentest-hub-snippet-tools';
+
+// Default tool presets with colors
+const DEFAULT_TOOLS = [
   { name: 'nmap', color: 'text-blue-400', bg: 'bg-blue-500/10' },
   { name: 'ffuf', color: 'text-green-400', bg: 'bg-green-500/10' },
   { name: 'nuclei', color: 'text-purple-400', bg: 'bg-purple-500/10' },
@@ -19,10 +23,193 @@ const TOOL_PRESETS = [
   { name: 'powershell', color: 'text-blue-400', bg: 'bg-blue-500/10' },
 ];
 
-const getToolStyle = (tool: string) => {
-  const preset = TOOL_PRESETS.find(t => t.name.toLowerCase() === tool.toLowerCase());
-  return preset || { name: tool, color: 'text-zinc-400', bg: 'bg-zinc-500/10' };
-};
+// Load tools from localStorage or use defaults
+function loadTools() {
+  const saved = localStorage.getItem(TOOLS_STORAGE_KEY);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      // Merge with defaults
+      return DEFAULT_TOOLS.map(def => {
+        const found = parsed.find((p: any) => p.name.toLowerCase() === def.name.toLowerCase());
+        return found || def;
+      }).concat(parsed.filter((p: any) => !DEFAULT_TOOLS.find(d => d.name.toLowerCase() === p.name.toLowerCase())));
+    } catch {
+      return DEFAULT_TOOLS;
+    }
+  }
+  return DEFAULT_TOOLS;
+}
+
+// Color options for tools
+const TOOL_COLORS = [
+  { color: 'text-blue-400', bg: 'bg-blue-500/10' },
+  { color: 'text-green-400', bg: 'bg-green-500/10' },
+  { color: 'text-purple-400', bg: 'bg-purple-500/10' },
+  { color: 'text-orange-400', bg: 'bg-orange-500/10' },
+  { color: 'text-red-400', bg: 'bg-red-500/10' },
+  { color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
+  { color: 'text-pink-400', bg: 'bg-pink-500/10' },
+  { color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
+  { color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+  { color: 'text-zinc-400', bg: 'bg-zinc-500/10' },
+];
+
+// Tool Editor Component
+function ToolEditor({
+  tools,
+  onSave,
+  onClose,
+}: {
+  tools: { name: string; color: string; bg: string }[];
+  onSave: (tools: { name: string; color: string; bg: string }[]) => void;
+  onClose: () => void;
+}) {
+  const [editTools, setEditTools] = useState(tools);
+  const [newTool, setNewTool] = useState('');
+
+  const updateToolColor = (name: string, colorIdx: number) => {
+    setEditTools(prev => prev.map(t => 
+      t.name.toLowerCase() === name.toLowerCase() 
+        ? { ...t, color: TOOL_COLORS[colorIdx].color, bg: TOOL_COLORS[colorIdx].bg }
+        : t
+    ));
+  };
+
+  const addTool = () => {
+    const trimmed = newTool.trim().toLowerCase();
+    if (trimmed && !editTools.find(t => t.name.toLowerCase() === trimmed)) {
+      const colorIdx = editTools.length % TOOL_COLORS.length;
+      setEditTools(prev => [...prev, {
+        name: trimmed,
+        color: TOOL_COLORS[colorIdx].color,
+        bg: TOOL_COLORS[colorIdx].bg,
+      }]);
+      setNewTool('');
+    }
+  };
+
+  const removeTool = (name: string) => {
+    setEditTools(prev => prev.filter(t => t.name.toLowerCase() !== name.toLowerCase()));
+  };
+
+  return (
+    <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-4 space-y-4 max-w-md">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-zinc-100">Manage Tools</h3>
+        <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="space-y-2 max-h-[300px] overflow-y-auto">
+        {editTools.map((tool, idx) => (
+          <div key={tool.name} className="flex items-center gap-2 p-2 rounded-lg bg-zinc-800">
+            <select
+              value={idx % TOOL_COLORS.length}
+              onChange={(e) => updateToolColor(tool.name, parseInt(e.target.value))}
+              className={cn("rounded border px-2 py-1 text-xs capitalize", tool.bg, tool.color)}
+            >
+              {TOOL_COLORS.map((_, i) => (
+                <option key={i} value={i}>Color {i + 1}</option>
+              ))}
+            </select>
+            <span className="flex-1 text-zinc-100 text-sm capitalize">{tool.name}</span>
+            <button
+              onClick={() => removeTool(tool.name)}
+              className="text-zinc-500 hover:text-red-400"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2 pt-2 border-t border-zinc-700">
+        <input
+          value={newTool}
+          onChange={(e) => setNewTool(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTool(); }}}
+          placeholder="New tool name..."
+          className="flex-1 rounded bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+        <button
+          onClick={addTool}
+          disabled={!newTool.trim()}
+          className="rounded bg-emerald-600 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="flex justify-end gap-2 pt-2">
+        <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-100">
+          Cancel
+        </button>
+        <button
+          onClick={() => { onSave(editTools); onClose(); }}
+          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500"
+        >
+          Save Tools
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Delete Confirmation Component
+function DeleteConfirm({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={onConfirm}
+        className="rounded-lg bg-red-600 p-1.5 text-white hover:bg-red-500"
+        title="Confirm delete"
+      >
+        <Check className="h-4 w-4" />
+      </button>
+      <button
+        onClick={onCancel}
+        className="rounded-lg bg-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-600"
+        title="Cancel"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+// Copy Button Component (rounded with title)
+function CopyButton({
+  onCopy,
+  isCopied,
+  title = "Copy",
+}: {
+  onCopy: () => void;
+  isCopied: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      onClick={onCopy}
+      className={cn(
+        "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-all",
+        isCopied
+          ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
+          : "border-zinc-600 text-zinc-400 hover:border-emerald-500 hover:text-emerald-400"
+      )}
+    >
+      {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      {isCopied ? 'Copied!' : title}
+    </button>
+  );
+}
 
 // Inline Edit Component
 function InlineEdit({ 
@@ -170,10 +357,12 @@ function NewSnippetForm({
   onSave, 
   onCancel,
   defaultTool = '',
+  tools,
 }: {
   onSave: (data: { title: string; tool: string; command: string; description: string; tags: string[] }) => void;
   onCancel: () => void;
   defaultTool?: string;
+  tools: { name: string; color: string; bg: string }[];
 }) {
   const [title, setTitle] = useState('');
   const [tool, setTool] = useState(defaultTool);
@@ -225,7 +414,7 @@ function NewSnippetForm({
           className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
         />
         <datalist id="tool-presets-new">
-          {TOOL_PRESETS.map(t => (
+          {tools.map(t => (
             <option key={t.name} value={t.name} />
           ))}
         </datalist>
@@ -300,6 +489,7 @@ function SnippetItem({
   onRename,
   onEditTags,
   allTags,
+  tools,
 }: {
   snippet: Snippet;
   isCopied: boolean;
@@ -309,9 +499,16 @@ function SnippetItem({
   onRename: (newTitle: string) => void;
   onEditTags: (tags: string[]) => void;
   allTags: string[];
+  tools: { name: string; color: string; bg: string }[];
 }) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [isEditingTags, setIsEditingTags] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const getToolStyle = (toolName: string) => {
+    const found = tools.find(t => t.name.toLowerCase() === toolName.toLowerCase());
+    return found || { name: toolName, color: 'text-zinc-400', bg: 'bg-zinc-500/10' };
+  };
 
   return (
     <div className="p-4 hover:bg-zinc-800/30 transition-colors">
@@ -340,44 +537,47 @@ function SnippetItem({
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <button 
-            onClick={() => setIsRenaming(true)}
-            className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-blue-400"
-            title="Rename"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          <button 
-            onClick={onEdit}
-            className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-100"
-            title="Edit"
-          >
-            <Edit2 className="h-3.5 w-3.5" />
-          </button>
-          <button 
-            onClick={onDelete}
-            className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-red-400"
-            title="Delete"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {isDeleting ? (
+            <DeleteConfirm
+              onConfirm={onDelete}
+              onCancel={() => setIsDeleting(false)}
+            />
+          ) : (
+            <>
+              <button 
+                onClick={() => setIsRenaming(true)}
+                className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-blue-400"
+                title="Rename"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button 
+                onClick={onEdit}
+                className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-100"
+                title="Edit"
+              >
+                <Edit2 className="h-3.5 w-3.5" />
+              </button>
+              <button 
+                onClick={() => setIsDeleting(true)}
+                className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-red-400"
+                title="Delete"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       {/* Command */}
-      <div 
-        className="group/cmd mt-3 flex items-center gap-3 rounded-lg bg-black p-3 cursor-pointer hover:bg-zinc-950 transition-colors relative"
-        onClick={onCopy}
-      >
-        <code className="flex-1 font-mono text-sm text-green-400 break-all whitespace-pre-wrap">
+      <div className="mt-3 rounded-lg bg-black p-3">
+        <code className="block font-mono text-sm text-green-400 break-all whitespace-pre-wrap">
           {snippet.command}
         </code>
-        <button className="shrink-0 rounded-md p-1 text-zinc-600 hover:text-emerald-400 transition-colors">
-          {isCopied 
-            ? <Check className="h-4 w-4 text-emerald-400" /> 
-            : <Copy className="h-4 w-4" />
-          }
-        </button>
+        <div className="mt-2 flex justify-end">
+          <CopyButton onCopy={onCopy} isCopied={isCopied} />
+        </div>
       </div>
 
       {/* Tags */}
@@ -436,6 +636,19 @@ export function Snippets() {
   const [isCreating, setIsCreating] = useState(false);
   const [createForTool, setCreateForTool] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['all']));
+  const [tools, setTools] = useState(loadTools);
+  const [showToolEditor, setShowToolEditor] = useState(false);
+
+  // Save tools to localStorage when changed
+  useEffect(() => {
+    localStorage.setItem(TOOLS_STORAGE_KEY, JSON.stringify(tools));
+  }, [tools]);
+
+  // Get tool style from loaded tools
+  const getToolStyle = (toolName: string) => {
+    const found = tools.find(t => t.name.toLowerCase() === toolName.toLowerCase());
+    return found || { name: toolName, color: 'text-zinc-400', bg: 'bg-zinc-500/10' };
+  };
 
   // Get all unique tags from all snippets
   const allTags = useMemo(() => {
@@ -451,9 +664,7 @@ export function Snippets() {
   };
 
   const handleDelete = (id: string) => {
-    if (confirm('Delete this snippet?')) {
-      snippetsApi.delete(id);
-    }
+    snippetsApi.delete(id);
   };
 
   const handleRename = (id: string, newTitle: string) => {
@@ -568,28 +779,46 @@ export function Snippets() {
       </div>
 
       {/* Tool Quick Filters */}
-      <div className="flex flex-wrap gap-2">
-        {TOOL_PRESETS.slice(0, 8).map(preset => {
-          const count = snippets.filter(s => s.tool.toLowerCase() === preset.name).length;
+      <div className="flex flex-wrap items-center gap-2">
+        {tools.slice(0, 8).map(toolDef => {
+          const count = snippets.filter(s => s.tool.toLowerCase() === toolDef.name.toLowerCase()).length;
           if (count === 0) return null;
           return (
             <button
-              key={preset.name}
-              onClick={() => setFilterTool(filterTool === preset.name ? 'all' : preset.name)}
+              key={toolDef.name}
+              onClick={() => setFilterTool(filterTool === toolDef.name.toLowerCase() ? 'all' : toolDef.name.toLowerCase())}
               className={cn(
                 "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
-                filterTool === preset.name
-                  ? `${preset.bg} ${preset.color} border-current`
+                filterTool === toolDef.name.toLowerCase()
+                  ? `${toolDef.bg} ${toolDef.color} border-current`
                   : "border-zinc-700 text-zinc-400 hover:border-zinc-600"
               )}
             >
               <Terminal className="h-3 w-3" />
-              {preset.name}
+              {toolDef.name}
               <span className="text-xs opacity-60">({count})</span>
             </button>
           );
         })}
+        <button
+          onClick={() => setShowToolEditor(true)}
+          className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-500 hover:text-emerald-400 hover:border-emerald-500/50"
+          title="Manage tools"
+        >
+          <Settings2 className="h-4 w-4" />
+        </button>
       </div>
+
+      {/* Tool Editor Modal */}
+      {showToolEditor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <ToolEditor
+            tools={tools}
+            onSave={(newTools) => setTools(newTools)}
+            onClose={() => setShowToolEditor(false)}
+          />
+        </div>
+      )}
 
       {/* New Snippet Form */}
       {isCreating && (
@@ -597,6 +826,7 @@ export function Snippets() {
           onSave={handleCreate}
           onCancel={() => { setIsCreating(false); setCreateForTool(''); }}
           defaultTool={createForTool}
+          tools={tools}
         />
       )}
 
@@ -655,6 +885,7 @@ export function Snippets() {
                         onRename={(newTitle) => handleRename(snippet.id, newTitle)}
                         onEditTags={(tags) => handleEditTags(snippet.id, tags)}
                         allTags={allTags}
+                        tools={tools}
                       />
                     </div>
                   ))}
@@ -704,11 +935,11 @@ export function Snippets() {
                     defaultValue={isEditing?.tool}
                     required
                     placeholder="e.g., nmap"
-                    list="tool-presets"
+                    list="tool-presets-edit"
                     className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none" 
                   />
-                  <datalist id="tool-presets">
-                    {TOOL_PRESETS.map(t => (
+                  <datalist id="tool-presets-edit">
+                    {tools.map(t => (
                       <option key={t.name} value={t.name} />
                     ))}
                   </datalist>
