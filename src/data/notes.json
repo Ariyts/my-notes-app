@@ -26,14 +26,14 @@
   {
     "id": "note-3",
     "title": "Active Directory Enumeration",
-    "category": "Active Directory/Enumeration",
+    "category": "Active Directory",
     "content": "# Active Directory Enumeration\n\n## Initial Recon (No Creds)\n\n```bash\n# Enumerate DC\nnmap -p 389,636,3268,3269 -sV <target>\n\n# Null session\nrpcclient -U \"\" -N <dc-ip>\nenum4linux -a <dc-ip>\n\n# LDAP anonymous\nldapsearch -x -H ldap://<dc-ip> -b \"dc=domain,dc=com\"\n```\n\n## With Credentials\n\n```bash\n# BloodHound collection\nbloodhound-python -u <user> -p <pass> -d <domain> -c all\n\n# PowerView\nGet-DomainUser -Identity *admin*\nGet-DomainGroup -AdminCount\nFind-LocalAdminAccess\n```\n\n## High Value Targets\n\n1. Domain Admins\n2. Enterprise Admins\n3. Service accounts (Kerberoastable)\n4. Computers with unconstrained delegation\n5. Users with DCSync rights",
     "tags": [
       "ad",
       "enumeration",
       "bloodhound"
     ],
-    "updatedAt": "2024-01-15T10:00:00.000Z"
+    "updatedAt": "2026-02-16T14:31:31.188Z"
   },
   {
     "title": "Untitled Note",
@@ -41,6 +41,6 @@
     "content": "# New Note\n\nStart writing your notes here...\n\n## Example Section\n\n```bash\necho \"Hello World\"\n```",
     "tags": [],
     "id": "id-mlo3j2a6-s88e4nplp",
-    "updatedAt": "2026-02-15T18:45:55.662Z"
+    "updatedAt": "2026-02-16T14:31:43.868Z"
   }
 ]

@@ -42,7 +42,7 @@
     "categoryField": "category",
     "color": "emerald",
     "isDefault": true,
-    "createdAt": "2026-02-15T19:31:29.649Z"
+    "createdAt": "2026-02-16T14:31:19.303Z"
   },
   {
     "id": "notes",
@@ -77,7 +77,7 @@
     "categoryField": "category",
     "color": "blue",
     "isDefault": true,
-    "createdAt": "2026-02-15T19:31:29.649Z"
+    "createdAt": "2026-02-16T14:31:19.303Z"
   },
   {
     "id": "snippets",
@@ -118,7 +118,7 @@
     "categoryField": "tool",
     "color": "purple",
     "isDefault": true,
-    "createdAt": "2026-02-15T19:31:29.649Z"
+    "createdAt": "2026-02-16T14:31:19.303Z"
   },
   {
     "id": "resources",
@@ -165,7 +165,7 @@
     "categoryField": "category",
     "color": "orange",
     "isDefault": true,
-    "createdAt": "2026-02-15T19:31:29.649Z"
+    "createdAt": "2026-02-16T14:31:19.303Z"
   },
   {
     "name": "4PDA",
@@ -202,40 +202,5 @@
     "categoryField": "category",
     "id": "4pda",
     "createdAt": "2026-02-15T16:57:29.743Z"
-  },
-  {
-    "name": "123",
-    "icon": "Database",
-    "displayModel": "faq",
-    "color": "emerald",
-    "description": "",
-    "fields": [
-      {
-        "name": "title",
-        "label": "Question",
-        "type": "text",
-        "required": true
-      },
-      {
-        "name": "content",
-        "label": "Answer",
-        "type": "textarea",
-        "required": true
-      },
-      {
-        "name": "category",
-        "label": "Category",
-        "type": "text",
-        "default": "General"
-      },
-      {
-        "name": "tags",
-        "label": "Tags",
-        "type": "tags"
-      }
-    ],
-    "categoryField": "category",
-    "id": "123",
-    "createdAt": "2026-02-15T17:52:39.670Z"
   }
 ]
