@@ -202,20 +202,11 @@ export function FolderView({
   };
 
   const handleRenameFolder = (oldPath: string, newPath: string) => {
-    // Prevent double execution from Enter + onBlur
-    if (renamingJustCompleted.current) {
-      renamingJustCompleted.current = false;
-      return;
-    }
-
-    // Validate
+    // Validate - allow any non-empty string including Russian, spaces, etc.
     const trimmedNewPath = newPath.trim();
     if (!trimmedNewPath || trimmedNewPath === oldPath) {
       return;
     }
-
-    // Mark as completed to prevent onBlur from firing again
-    renamingJustCompleted.current = true;
 
     // Use atomic rename if provided (recommended for proper state updates)
     if (onRenameFolder) {
@@ -477,28 +468,42 @@ export function FolderView({
                     </>
                   )}
                   {renamingFolder === rootCategory ? (
-                    <input
-                      value={renamingFolderValue}
-                      onChange={(e) => setRenamingFolderValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        value={renamingFolderValue}
+                        onChange={(e) => setRenamingFolderValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleRenameFolder(rootCategory, renamingFolderValue);
+                            setRenamingFolder(null);
+                          }
+                          if (e.key === 'Escape') { 
+                            setRenamingFolder(null); 
+                          }
+                        }}
+                        className="bg-zinc-700 px-2 py-0.5 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-w-[100px]"
+                        autoFocus
+                        placeholder="Folder name..."
+                      />
+                      <button
+                        onClick={() => {
                           handleRenameFolder(rootCategory, renamingFolderValue);
                           setRenamingFolder(null);
-                        }
-                        if (e.key === 'Escape') { setRenamingFolder(null); }
-                      }}
-                      onBlur={() => {
-                        // Only rename if not already completed via Enter
-                        if (renamingFolder === rootCategory) {
-                          handleRenameFolder(rootCategory, renamingFolderValue);
-                          setRenamingFolder(null);
-                        }
-                      }}
-                      className="bg-zinc-700 px-1 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                      autoFocus
-                      onClick={(e) => e.stopPropagation()}
-                    />
+                        }}
+                        className="rounded bg-emerald-600 p-1 text-white hover:bg-emerald-500"
+                        title="Save"
+                      >
+                        <Check className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => setRenamingFolder(null)}
+                        className="rounded bg-zinc-700 p-1 text-zinc-300 hover:bg-zinc-600"
+                        title="Cancel"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
                   ) : (
                     <span>{rootCategory}</span>
                   )}
@@ -556,33 +561,48 @@ export function FolderView({
                         <div className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-zinc-500 group">
                           <Folder className="h-3 w-3 text-amber-500/50" />
                           {renamingFolder === `${rootCategory}/${subCategory}` ? (
-                            <input
-                              value={renamingFolderValue}
-                              onChange={(e) => setRenamingFolderValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  // For subfolders, construct the new full path
+                            <div className="flex items-center gap-1 flex-1">
+                              <input
+                                value={renamingFolderValue}
+                                onChange={(e) => setRenamingFolderValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const newFullPath = renamingFolderValue.includes('/') 
+                                      ? renamingFolderValue 
+                                      : `${rootCategory}/${renamingFolderValue}`;
+                                    handleRenameFolder(`${rootCategory}/${subCategory}`, newFullPath);
+                                    setRenamingFolder(null);
+                                  }
+                                  if (e.key === 'Escape') { 
+                                    setRenamingFolder(null); 
+                                  }
+                                }}
+                                className="bg-zinc-700 px-2 py-0.5 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 flex-1"
+                                autoFocus
+                                placeholder="Subfolder name..."
+                              />
+                              <button
+                                onClick={() => {
                                   const newFullPath = renamingFolderValue.includes('/') 
                                     ? renamingFolderValue 
                                     : `${rootCategory}/${renamingFolderValue}`;
                                   handleRenameFolder(`${rootCategory}/${subCategory}`, newFullPath);
                                   setRenamingFolder(null);
-                                }
-                                if (e.key === 'Escape') { setRenamingFolder(null); }
-                              }}
-                              onBlur={() => {
-                                if (renamingFolder === `${rootCategory}/${subCategory}`) {
-                                  const newFullPath = renamingFolderValue.includes('/') 
-                                    ? renamingFolderValue 
-                                    : `${rootCategory}/${renamingFolderValue}`;
-                                  handleRenameFolder(`${rootCategory}/${subCategory}`, newFullPath);
-                                  setRenamingFolder(null);
-                                }
-                              }}
-                              className="bg-zinc-700 px-1 rounded text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 flex-1"
-                              autoFocus
-                            />
+                                }}
+                                className="rounded bg-emerald-600 p-0.5 text-white hover:bg-emerald-500"
+                                title="Save"
+                              >
+                                <Check className="h-3 w-3" />
+                              </button>
+                              <button
+                                onClick={() => setRenamingFolder(null)}
+                                className="rounded bg-zinc-700 p-0.5 text-zinc-300 hover:bg-zinc-600"
+                                title="Cancel"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
                           ) : (
                             <>
                               <span className="flex-1">{subCategory}</span>
