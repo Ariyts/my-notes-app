@@ -48,17 +48,19 @@ export interface FolderViewProps {
   // Data
   items: FolderItem[];
   categories: string[];
-  
+
   // State
   selectedItem: FolderItem | null;
   onSelect: (item: FolderItem) => void;
-  
+
   // CRUD operations
   onCreate: (category?: string) => void;
   onCreateFolder: (folderName: string) => void;
   onUpdate: (id: string, data: Partial<FolderItem>) => void;
   onDelete: (id: string) => void;
   onDeleteFolder?: (folderPath: string) => void;
+  // Atomic folder rename - updates all items in folder at once
+  onRenameFolder?: (oldPath: string, newPath: string) => void;
   
   // Import/Export
   onExportAll?: () => void;
@@ -89,6 +91,7 @@ export function FolderView({
   onUpdate,
   onDelete,
   onDeleteFolder,
+  onRenameFolder,
   onExportAll,
   onImport,
   onExportCurrent,
@@ -204,24 +207,29 @@ export function FolderView({
       renamingJustCompleted.current = false;
       return;
     }
-    
+
     // Validate
     const trimmedNewPath = newPath.trim();
     if (!trimmedNewPath || trimmedNewPath === oldPath) {
       return;
     }
-    
+
     // Mark as completed to prevent onBlur from firing again
     renamingJustCompleted.current = true;
-    
-    // Update all items in this folder
-    items.forEach(item => {
-      if (item.category === oldPath) {
-        onUpdate(item.id, { category: trimmedNewPath });
-      } else if (item.category.startsWith(oldPath + '/')) {
-        onUpdate(item.id, { category: item.category.replace(oldPath + '/', trimmedNewPath + '/') });
-      }
-    });
+
+    // Use atomic rename if provided (recommended for proper state updates)
+    if (onRenameFolder) {
+      onRenameFolder(oldPath, trimmedNewPath);
+    } else {
+      // Fallback: update each item individually (may cause issues with stale state)
+      items.forEach(item => {
+        if (item.category === oldPath) {
+          onUpdate(item.id, { category: trimmedNewPath });
+        } else if (item.category.startsWith(oldPath + '/')) {
+          onUpdate(item.id, { category: item.category.replace(oldPath + '/', trimmedNewPath + '/') });
+        }
+      });
+    }
   };
 
   const handleRenameItem = (itemId: string, newTitle: string) => {

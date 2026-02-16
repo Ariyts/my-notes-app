@@ -249,6 +249,57 @@ export function DynamicContent() {
     }
   };
 
+  // Atomic folder rename - updates all items in folder at once
+  const handleFolderRename = (oldPath: string, newPath: string) => {
+    const newItems = items.map(item => {
+      const category = String(item.category || 'General');
+      if (category === oldPath) {
+        return { ...item, category: newPath, updatedAt: new Date().toISOString() };
+      } else if (category.startsWith(oldPath + '/')) {
+        return { ...item, category: category.replace(oldPath + '/', newPath + '/'), updatedAt: new Date().toISOString() };
+      }
+      return item;
+    });
+    saveItems(newItems);
+
+    // Update selected item state if it was in renamed folder
+    if (selectedFolderItem) {
+      const selCat = selectedFolderItem.category;
+      if (selCat === oldPath) {
+        setSelectedFolderItem(prev => prev ? { ...prev, category: newPath } : null);
+        setEditFolderData(prev => ({ ...prev, category: newPath }));
+      } else if (selCat.startsWith(oldPath + '/')) {
+        const newCat = selCat.replace(oldPath + '/', newPath + '/');
+        setSelectedFolderItem(prev => prev ? { ...prev, category: newCat } : null);
+        setEditFolderData(prev => ({ ...prev, category: newCat }));
+      }
+    }
+  };
+
+  // Delete folder with all its contents
+  const handleDeleteFolder = (folderPath: string) => {
+    const newItems = items.filter(item => {
+      const category = String(item.category || 'General');
+      return category !== folderPath && !category.startsWith(folderPath + '/');
+    });
+    saveItems(newItems);
+
+    // Clear selection if deleted folder contained selected item
+    if (selectedFolderItem) {
+      const selCat = selectedFolderItem.category;
+      if (selCat === folderPath || selCat.startsWith(folderPath + '/')) {
+        const remainingItems = newItems;
+        if (remainingItems.length > 0) {
+          const nextItem = toFolderItems(remainingItems)[0];
+          setSelectedFolderItem(nextItem);
+          setEditFolderData(nextItem);
+        } else {
+          setSelectedFolderItem(null);
+        }
+      }
+    }
+  };
+
   const handleFolderExportAll = async () => {
     const folderItems = toFolderItems(items);
     const blob = await createNotesArchive(folderItems);
@@ -434,6 +485,8 @@ export function DynamicContent() {
           onCreateFolder={handleFolderCreateFolder}
           onUpdate={handleFolderUpdate}
           onDelete={handleFolderDelete}
+          onDeleteFolder={handleDeleteFolder}
+          onRenameFolder={handleFolderRename}
           onExportAll={handleFolderExportAll}
           onImport={handleFolderImport}
           title={typeConfig.name}

@@ -153,6 +153,64 @@ export function Notes() {
     }
   };
 
+  // Atomic folder rename - updates all notes in folder at once
+  const handleRenameFolder = (oldPath: string, newPath: string) => {
+    notes.forEach(note => {
+      if (note.category === oldPath) {
+        notesApi.update(note.id, { category: newPath });
+      } else if (note.category.startsWith(oldPath + '/')) {
+        notesApi.update(note.id, { category: note.category.replace(oldPath + '/', newPath + '/') });
+      }
+    });
+
+    // Update selected item state if it was in renamed folder
+    if (selectedItem) {
+      const selCat = selectedItem.category;
+      if (selCat === oldPath) {
+        setSelectedItem(prev => prev ? { ...prev, category: newPath } : null);
+        setEditData(prev => ({ ...prev, category: newPath }));
+      } else if (selCat.startsWith(oldPath + '/')) {
+        const newCat = selCat.replace(oldPath + '/', newPath + '/');
+        setSelectedItem(prev => prev ? { ...prev, category: newCat } : null);
+        setEditData(prev => ({ ...prev, category: newCat }));
+      }
+    }
+  };
+
+  // Delete folder with all its notes
+  const handleDeleteFolder = (folderPath: string) => {
+    notes.forEach(note => {
+      if (note.category === folderPath || note.category.startsWith(folderPath + '/')) {
+        notesApi.delete(note.id);
+      }
+    });
+
+    // Clear selection if deleted folder contained selected item
+    if (selectedItem) {
+      const selCat = selectedItem.category;
+      if (selCat === folderPath || selCat.startsWith(folderPath + '/')) {
+        const remainingNotes = notes.filter(n => 
+          n.category !== folderPath && !n.category.startsWith(folderPath + '/')
+        );
+        if (remainingNotes.length > 0) {
+          const nextNote = remainingNotes[0];
+          const folderItem: FolderItem = {
+            id: nextNote.id,
+            title: nextNote.title,
+            category: nextNote.category,
+            content: nextNote.content,
+            tags: nextNote.tags,
+            updatedAt: nextNote.updatedAt,
+          };
+          setSelectedItem(folderItem);
+          setEditData(folderItem);
+        } else {
+          setSelectedItem(null);
+        }
+      }
+    }
+  };
+
   const handleExportAll = async () => {
     if (notes.length === 0) return;
     const blob = await createNotesArchive(notes);
@@ -236,6 +294,8 @@ export function Notes() {
         onCreateFolder={handleCreateFolder}
         onUpdate={handleUpdate}
         onDelete={handleDelete}
+        onDeleteFolder={handleDeleteFolder}
+        onRenameFolder={handleRenameFolder}
         onExportAll={handleExportAll}
         onImport={handleImport}
         onExportCurrent={handleExportCurrent}
