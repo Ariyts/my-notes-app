@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Plus, Search, Copy, Check, Terminal, Trash2, Edit2, ChevronDown, Filter } from 'lucide-react';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { Plus, Search, Copy, Check, Terminal, Trash2, Edit2, ChevronDown, Filter, X, Pencil, Tag, Settings2 } from 'lucide-react';
 import { useData } from '../lib/DataContext';
 import { Snippet } from '../types';
 import { cn } from '../utils/cn';
@@ -24,6 +24,407 @@ const getToolStyle = (tool: string) => {
   return preset || { name: tool, color: 'text-zinc-400', bg: 'bg-zinc-500/10' };
 };
 
+// Inline Edit Component
+function InlineEdit({ 
+  value, 
+  onSave, 
+  onCancel,
+  placeholder = "Enter text...",
+  className = "",
+}: {
+  value: string;
+  onSave: (value: string) => void;
+  onCancel: () => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [editValue, setEditValue] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  const handleSave = () => {
+    if (editValue.trim()) {
+      onSave(editValue.trim());
+    } else {
+      onCancel();
+    }
+  };
+
+  return (
+    <div className={cn("flex items-center gap-1", className)}>
+      <input
+        ref={inputRef}
+        value={editValue}
+        onChange={(e) => setEditValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            handleSave();
+          }
+          if (e.key === 'Escape') {
+            onCancel();
+          }
+        }}
+        placeholder={placeholder}
+        className="flex-1 min-w-0 rounded bg-zinc-700 px-2 py-0.5 text-zinc-100 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+      />
+      <button onClick={handleSave} className="rounded bg-emerald-600 p-1 text-white hover:bg-emerald-500 shrink-0">
+        <Check className="h-3 w-3" />
+      </button>
+      <button onClick={onCancel} className="rounded bg-zinc-700 p-1 text-zinc-300 hover:bg-zinc-600 shrink-0">
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+// Tag Editor Component
+function TagEditor({ 
+  tags, 
+  onSave,
+  allTags,
+}: {
+  tags: string[];
+  onSave: (tags: string[]) => void;
+  allTags: string[];
+}) {
+  const [editTags, setEditTags] = useState<string[]>(tags);
+  const [newTag, setNewTag] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const addTag = () => {
+    const trimmed = newTag.trim().toLowerCase();
+    if (trimmed && !editTags.includes(trimmed)) {
+      setEditTags([...editTags, trimmed]);
+      setNewTag('');
+    }
+  };
+
+  const removeTag = (tag: string) => {
+    setEditTags(editTags.filter(t => t !== tag));
+  };
+
+  const handleSave = () => {
+    onSave(editTags);
+  };
+
+  return (
+    <div className="flex flex-col gap-2 p-2 rounded-lg bg-zinc-800 border border-zinc-700 min-w-[200px]">
+      <div className="flex flex-wrap gap-1">
+        {editTags.map(tag => (
+          <span key={tag} className="flex items-center gap-1 rounded-full bg-zinc-700 px-2 py-0.5 text-xs text-zinc-300">
+            <Tag className="h-2.5 w-2.5" />
+            {tag}
+            <button onClick={() => removeTag(tag)} className="ml-1 text-zinc-500 hover:text-red-400">
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      
+      <div className="flex items-center gap-1">
+        <input
+          ref={inputRef}
+          value={newTag}
+          onChange={(e) => setNewTag(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addTag();
+            }
+          }}
+          placeholder="Add tag..."
+          list="all-snippet-tags"
+          className="flex-1 rounded bg-zinc-700 px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+        <button onClick={addTag} className="rounded bg-zinc-700 p-1 text-zinc-400 hover:text-emerald-400">
+          <Plus className="h-3 w-3" />
+        </button>
+      </div>
+      
+      <datalist id="all-snippet-tags">
+        {allTags.filter(t => !editTags.includes(t)).map(tag => (
+          <option key={tag} value={tag} />
+        ))}
+      </datalist>
+      
+      <div className="flex justify-end gap-1 pt-1 border-t border-zinc-700">
+        <button onClick={handleSave} className="rounded bg-emerald-600 px-2 py-1 text-xs text-white hover:bg-emerald-500">
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// New Snippet Inline Form
+function NewSnippetForm({ 
+  onSave, 
+  onCancel,
+  defaultTool = '',
+}: {
+  onSave: (data: { title: string; tool: string; command: string; description: string; tags: string[] }) => void;
+  onCancel: () => void;
+  defaultTool?: string;
+}) {
+  const [title, setTitle] = useState('');
+  const [tool, setTool] = useState(defaultTool);
+  const [command, setCommand] = useState('');
+  const [description, setDescription] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [newTag, setNewTag] = useState('');
+
+  const handleSubmit = () => {
+    if (title.trim() && tool.trim() && command.trim()) {
+      onSave({ 
+        title: title.trim(), 
+        tool: tool.trim(), 
+        command: command.trim(), 
+        description: description.trim(),
+        tags 
+      });
+    }
+  };
+
+  const addTag = () => {
+    const trimmed = newTag.trim().toLowerCase();
+    if (trimmed && !tags.includes(trimmed)) {
+      setTags([...tags, trimmed]);
+      setNewTag('');
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
+      <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium">
+        <Plus className="h-4 w-4" />
+        New Snippet
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Snippet title..."
+          className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+          autoFocus
+        />
+        <input
+          value={tool}
+          onChange={(e) => setTool(e.target.value)}
+          placeholder="Tool name (e.g., nmap)"
+          list="tool-presets-new"
+          className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+        />
+        <datalist id="tool-presets-new">
+          {TOOL_PRESETS.map(t => (
+            <option key={t.name} value={t.name} />
+          ))}
+        </datalist>
+      </div>
+      
+      <textarea
+        value={command}
+        onChange={(e) => setCommand(e.target.value)}
+        placeholder="Enter your command..."
+        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-sm text-green-400 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none resize-none"
+        rows={3}
+      />
+      
+      <input
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Description (optional)..."
+        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+      />
+      
+      {/* Tags */}
+      <div className="flex flex-wrap items-center gap-2">
+        {tags.map(tag => (
+          <span key={tag} className="flex items-center gap-1 rounded-full bg-zinc-700 px-2 py-0.5 text-xs text-zinc-300">
+            <Tag className="h-2.5 w-2.5" />
+            {tag}
+            <button onClick={() => setTags(tags.filter(t => t !== tag))} className="ml-1 text-zinc-500 hover:text-red-400">
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        <div className="flex items-center gap-1">
+          <input
+            value={newTag}
+            onChange={(e) => setNewTag(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); }}}
+            placeholder="Add tag..."
+            className="rounded bg-zinc-700 px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          />
+          <button onClick={addTag} className="text-zinc-400 hover:text-emerald-400">
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      
+      <div className="flex justify-end gap-2 pt-2 border-t border-zinc-700">
+        <button
+          onClick={onCancel}
+          className="rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-zinc-100"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={!title.trim() || !tool.trim() || !command.trim()}
+          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Create Snippet
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Snippet Item Component
+function SnippetItem({
+  snippet,
+  isCopied,
+  onCopy,
+  onEdit,
+  onDelete,
+  onRename,
+  onEditTags,
+  allTags,
+}: {
+  snippet: Snippet;
+  isCopied: boolean;
+  onCopy: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onRename: (newTitle: string) => void;
+  onEditTags: (tags: string[]) => void;
+  allTags: string[];
+}) {
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [isEditingTags, setIsEditingTags] = useState(false);
+
+  return (
+    <div className="p-4 hover:bg-zinc-800/30 transition-colors">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          {isRenaming ? (
+            <InlineEdit
+              value={snippet.title}
+              onSave={(newTitle) => { onRename(newTitle); setIsRenaming(false); }}
+              onCancel={() => setIsRenaming(false)}
+              placeholder="Snippet title..."
+            />
+          ) : (
+            <div className="flex items-center gap-1">
+              <h3 className="font-medium text-zinc-100">{snippet.title}</h3>
+              <button
+                onClick={() => setIsRenaming(true)}
+                className="p-1 text-zinc-500 hover:text-blue-400 opacity-0 group-hover:opacity-100"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+          {snippet.description && (
+            <p className="mt-0.5 text-sm text-zinc-500">{snippet.description}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button 
+            onClick={() => setIsRenaming(true)}
+            className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-blue-400"
+            title="Rename"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button 
+            onClick={onEdit}
+            className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-100"
+            title="Edit"
+          >
+            <Edit2 className="h-3.5 w-3.5" />
+          </button>
+          <button 
+            onClick={onDelete}
+            className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-red-400"
+            title="Delete"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Command */}
+      <div 
+        className="group/cmd mt-3 flex items-center gap-3 rounded-lg bg-black p-3 cursor-pointer hover:bg-zinc-950 transition-colors relative"
+        onClick={onCopy}
+      >
+        <code className="flex-1 font-mono text-sm text-green-400 break-all whitespace-pre-wrap">
+          {snippet.command}
+        </code>
+        <button className="shrink-0 rounded-md p-1 text-zinc-600 hover:text-emerald-400 transition-colors">
+          {isCopied 
+            ? <Check className="h-4 w-4 text-emerald-400" /> 
+            : <Copy className="h-4 w-4" />
+          }
+        </button>
+      </div>
+
+      {/* Tags */}
+      {(snippet.tags.length > 0 || isEditingTags) && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {isEditingTags ? (
+            <TagEditor
+              tags={snippet.tags}
+              onSave={(tags) => { onEditTags(tags); setIsEditingTags(false); }}
+              allTags={allTags}
+            />
+          ) : (
+            <>
+              {snippet.tags.map(tag => (
+                <span 
+                  key={tag} 
+                  className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-500"
+                >
+                  {tag}
+                </span>
+              ))}
+              <button
+                onClick={() => setIsEditingTags(true)}
+                className="rounded-full bg-zinc-800/50 p-1 text-zinc-500 hover:text-emerald-400 opacity-0 group-hover:opacity-100"
+                title="Edit tags"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      
+      {/* Add tags button if no tags */}
+      {snippet.tags.length === 0 && !isEditingTags && (
+        <button
+          onClick={() => setIsEditingTags(true)}
+          className="mt-3 flex items-center gap-1 rounded-full bg-zinc-800/50 px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 opacity-0 group-hover:opacity-100"
+        >
+          <Plus className="h-3 w-3" />
+          Add tags
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function Snippets() {
   const { snippets: snippetsApi, data } = useData();
   const snippets = data.snippets;
@@ -33,7 +434,15 @@ export function Snippets() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState<Snippet | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [createForTool, setCreateForTool] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['all']));
+
+  // Get all unique tags from all snippets
+  const allTags = useMemo(() => {
+    const tags = new Set<string>();
+    snippets.forEach(s => s.tags.forEach(t => tags.add(t)));
+    return [...tags].sort();
+  }, [snippets]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -47,12 +456,26 @@ export function Snippets() {
     }
   };
 
+  const handleRename = (id: string, newTitle: string) => {
+    snippetsApi.update(id, { title: newTitle });
+  };
+
+  const handleEditTags = (id: string, tags: string[]) => {
+    snippetsApi.update(id, { tags });
+  };
+
+  const handleCreate = (data: { title: string; tool: string; command: string; description: string; tags: string[] }) => {
+    snippetsApi.add(data);
+    setIsCreating(false);
+    setCreateForTool('');
+  };
+
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const tags = (formData.get('tags') as string).split(',').map(t => t.trim()).filter(Boolean);
     
-    const data = {
+    const saveData = {
       title: formData.get('title') as string,
       tool: formData.get('tool') as string,
       command: formData.get('command') as string,
@@ -61,13 +484,10 @@ export function Snippets() {
     };
 
     if (isEditing) {
-      snippetsApi.update(isEditing.id, data);
-    } else {
-      snippetsApi.add(data);
+      snippetsApi.update(isEditing.id, saveData);
     }
 
     setIsEditing(null);
-    setIsCreating(false);
   };
 
   const toggleGroup = (tool: string) => {
@@ -111,7 +531,7 @@ export function Snippets() {
           <p className="text-sm text-zinc-500">{snippets.length} commands • {allTools.length} tools</p>
         </div>
         <button 
-          onClick={() => setIsCreating(true)}
+          onClick={() => { setIsCreating(true); setCreateForTool(''); }}
           className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 transition-colors"
         >
           <Plus className="h-4 w-4" />
@@ -171,6 +591,15 @@ export function Snippets() {
         })}
       </div>
 
+      {/* New Snippet Form */}
+      {isCreating && (
+        <NewSnippetForm
+          onSave={handleCreate}
+          onCancel={() => { setIsCreating(false); setCreateForTool(''); }}
+          defaultTool={createForTool}
+        />
+      )}
+
       {/* Grouped Snippets */}
       <div className="space-y-4">
         {Object.entries(groupedSnippets).sort().map(([tool, toolSnippets]) => {
@@ -193,69 +622,40 @@ export function Snippets() {
                     {toolSnippets.length}
                   </span>
                 </div>
-                <ChevronDown className={cn(
-                  "h-4 w-4 text-zinc-500 transition-transform",
-                  isExpanded && "rotate-180"
-                )} />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCreateForTool(tool);
+                      setIsCreating(true);
+                    }}
+                    className="rounded-lg p-1.5 text-zinc-500 hover:text-emerald-400 hover:bg-zinc-700"
+                    title="Add snippet to this tool"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                  <ChevronDown className={cn(
+                    "h-4 w-4 text-zinc-500 transition-transform",
+                    isExpanded && "rotate-180"
+                  )} />
+                </div>
               </button>
 
               {/* Snippets */}
               {isExpanded && (
                 <div className="border-t border-zinc-800 divide-y divide-zinc-800">
                   {toolSnippets.map((snippet) => (
-                    <div key={snippet.id} className="p-4 hover:bg-zinc-800/30 transition-colors">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-medium text-zinc-100">{snippet.title}</h3>
-                          {snippet.description && (
-                            <p className="mt-0.5 text-sm text-zinc-500">{snippet.description}</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button 
-                            onClick={() => setIsEditing(snippet)}
-                            className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-100"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-                          <button 
-                            onClick={() => handleDelete(snippet.id)}
-                            className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-red-400"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Command */}
-                      <div 
-                        className="group mt-3 flex items-center gap-3 rounded-lg bg-black p-3 cursor-pointer hover:bg-zinc-950 transition-colors"
-                        onClick={() => handleCopy(snippet.command, snippet.id)}
-                      >
-                        <code className="flex-1 font-mono text-sm text-green-400 break-all whitespace-pre-wrap">
-                          {snippet.command}
-                        </code>
-                        <button className="shrink-0 rounded-md p-1 text-zinc-600 hover:text-emerald-400 transition-colors">
-                          {copiedId === snippet.id 
-                            ? <Check className="h-4 w-4 text-emerald-400" /> 
-                            : <Copy className="h-4 w-4" />
-                          }
-                        </button>
-                      </div>
-
-                      {/* Tags */}
-                      {snippet.tags.length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-1.5">
-                          {snippet.tags.map(tag => (
-                            <span 
-                              key={tag} 
-                              className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-500"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                    <div key={snippet.id} className="group">
+                      <SnippetItem
+                        snippet={snippet}
+                        isCopied={copiedId === snippet.id}
+                        onCopy={() => handleCopy(snippet.command, snippet.id)}
+                        onEdit={() => setIsEditing(snippet)}
+                        onDelete={() => handleDelete(snippet.id)}
+                        onRename={(newTitle) => handleRename(snippet.id, newTitle)}
+                        onEditTags={(tags) => handleEditTags(snippet.id, tags)}
+                        allTags={allTags}
+                      />
                     </div>
                   ))}
                 </div>
@@ -265,7 +665,7 @@ export function Snippets() {
         })}
       </div>
 
-      {Object.keys(groupedSnippets).length === 0 && (
+      {Object.keys(groupedSnippets).length === 0 && !isCreating && (
         <div className="py-16 text-center">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800">
             <Terminal className="h-8 w-8 text-zinc-600" />
@@ -275,14 +675,15 @@ export function Snippets() {
         </div>
       )}
 
-      {/* Create/Edit Modal */}
-      {(isCreating || isEditing) && (
+      {/* Edit Modal (only for full content editing) */}
+      {isEditing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-lg rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl">
-            <div className="border-b border-zinc-800 px-6 py-4">
-              <h2 className="text-xl font-bold text-zinc-100">
-                {isEditing ? 'Edit Snippet' : 'New Snippet'}
-              </h2>
+            <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
+              <h2 className="text-xl font-bold text-zinc-100">Edit Snippet</h2>
+              <button onClick={() => setIsEditing(null)} className="text-zinc-400 hover:text-zinc-200">
+                <X className="h-5 w-5" />
+              </button>
             </div>
             <form onSubmit={handleSave} className="p-6 space-y-4">
               <div>
@@ -345,7 +746,7 @@ export function Snippets() {
               <div className="flex justify-end gap-3 pt-4 border-t border-zinc-800">
                 <button 
                   type="button" 
-                  onClick={() => { setIsCreating(false); setIsEditing(null); }}
+                  onClick={() => setIsEditing(null)}
                   className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100 transition-colors"
                 >
                   Cancel
@@ -354,7 +755,7 @@ export function Snippets() {
                   type="submit" 
                   className="rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
                 >
-                  {isEditing ? 'Update Snippet' : 'Create Snippet'}
+                  Update Snippet
                 </button>
               </div>
             </form>
