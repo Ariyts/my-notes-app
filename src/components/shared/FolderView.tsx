@@ -128,6 +128,10 @@ export function FolderView({
   // Delete confirmation state
   const [deletingFolder, setDeletingFolder] = useState<string | null>(null);
 
+  // Drag & drop state
+  const [draggedItem, setDraggedItem] = useState<FolderItem | null>(null);
+  const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
+
   // Initialize expanded folders
   useEffect(() => {
     if (items.length > 0) {
@@ -303,6 +307,56 @@ export function FolderView({
     onDelete(selectedItem.id);
   };
 
+  // Drag & drop handlers
+  const handleDragStart = (e: React.DragEvent, item: FolderItem) => {
+    setDraggedItem(item);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', item.id);
+    // Add visual feedback
+    const target = e.currentTarget as HTMLElement;
+    setTimeout(() => target.style.opacity = '0.5', 0);
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    const target = e.currentTarget as HTMLElement;
+    target.style.opacity = '1';
+    setDraggedItem(null);
+    setDragOverFolder(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, folderPath: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverFolder(folderPath);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverFolder(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetFolder: string) => {
+    e.preventDefault();
+    setDragOverFolder(null);
+
+    if (!draggedItem) return;
+
+    // Don't drop on the same folder
+    if (draggedItem.category === targetFolder) {
+      setDraggedItem(null);
+      return;
+    }
+
+    // Update the item's category (move to new folder)
+    onUpdate(draggedItem.id, { category: targetFolder });
+
+    // Update local edit state if this was the selected item
+    if (selectedItem?.id === draggedItem.id) {
+      setEditData({ ...editData, category: targetFolder });
+    }
+
+    setDraggedItem(null);
+  };
+
   const allCategories = [...new Set([...predefinedCategories, ...categories, ...existingFolders])].sort();
 
   return (
@@ -451,7 +505,15 @@ export function FolderView({
         <div className="flex-1 overflow-y-auto p-2">
           {Object.entries(tree).sort().map(([rootCategory, subCategories]) => (
             <div key={rootCategory} className="mb-1">
-              <div className="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-300 hover:bg-zinc-800 group">
+              <div
+                className={cn(
+                  "flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-300 hover:bg-zinc-800 group transition-colors",
+                  dragOverFolder === rootCategory && "bg-emerald-600/30 ring-2 ring-emerald-500"
+                )}
+                onDragOver={(e) => handleDragOver(e, rootCategory)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, rootCategory)}
+              >
                 <button
                   onClick={() => toggleFolder(rootCategory)}
                   className="flex items-center gap-2 flex-1"
@@ -558,7 +620,15 @@ export function FolderView({
                   {Object.entries(subCategories).sort().map(([subCategory, categoryItems]) => (
                     <div key={subCategory} className="mt-1">
                       {subCategory !== '_root' && (
-                        <div className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-zinc-500 group">
+                        <div
+                          className={cn(
+                            "flex items-center gap-1 px-2 py-1 text-xs font-medium text-zinc-500 group transition-colors rounded",
+                            dragOverFolder === `${rootCategory}/${subCategory}` && "bg-emerald-600/30 ring-2 ring-emerald-500 text-emerald-400"
+                          )}
+                          onDragOver={(e) => handleDragOver(e, `${rootCategory}/${subCategory}`)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => handleDrop(e, `${rootCategory}/${subCategory}`)}
+                        >
                           <Folder className="h-3 w-3 text-amber-500/50" />
                           {renamingFolder === `${rootCategory}/${subCategory}` ? (
                             <div className="flex items-center gap-1 flex-1">
@@ -654,11 +724,15 @@ export function FolderView({
                       {categoryItems.map(item => (
                         <div
                           key={item.id}
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, item)}
+                          onDragEnd={handleDragEnd}
                           className={cn(
-                            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors group",
-                            selectedItem?.id === item.id 
-                              ? "bg-emerald-600/20 text-emerald-400" 
-                              : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+                            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors group cursor-grab active:cursor-grabbing",
+                            selectedItem?.id === item.id
+                              ? "bg-emerald-600/20 text-emerald-400"
+                              : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200",
+                            draggedItem?.id === item.id && "opacity-50"
                           )}
                         >
                           <FileText className="h-3.5 w-3.5 shrink-0" />
