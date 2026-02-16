@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Plus, Search, Copy, Tag, Edit2, Trash2, Check, Filter, Grid, List, Table2, Star, StarOff, GripVertical, X, Pencil, Settings2 } from 'lucide-react';
+import { Plus, Search, Copy, Tag, Edit2, Trash2, Check, Filter, Grid, List, Table2, Star, StarOff, GripVertical, X, Pencil, Settings2, FolderPlus } from 'lucide-react';
 import {
   DndContext,
   DragEndEvent,
@@ -20,6 +20,9 @@ import { useData } from '../lib/DataContext';
 import { Prompt } from '../types';
 import { cn } from '../utils/cn';
 
+// Storage key for custom categories
+const CATEGORIES_STORAGE_KEY = 'pentest-hub-prompt-categories';
+
 // Default categories with colors
 const DEFAULT_CATEGORIES = [
   { value: 'recon', label: 'Recon', color: 'bg-blue-500/10 text-blue-400 border-blue-500/30' },
@@ -32,11 +35,154 @@ const DEFAULT_CATEGORIES = [
   { value: 'other', label: 'Other', color: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/30' },
 ];
 
-const getCategoryStyle = (category: string) => {
-  return DEFAULT_CATEGORIES.find(c => c.value === category)?.color || DEFAULT_CATEGORIES[DEFAULT_CATEGORIES.length - 1].color;
-};
+// Load categories from localStorage or use defaults
+function loadCategories() {
+  const saved = localStorage.getItem(CATEGORIES_STORAGE_KEY);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      // Merge with defaults to keep colors
+      return DEFAULT_CATEGORIES.map(def => {
+        const found = parsed.find((p: any) => p.value === def.value);
+        return found || def;
+      }).concat(parsed.filter((p: any) => !DEFAULT_CATEGORIES.find(d => d.value === p.value)));
+    } catch {
+      return DEFAULT_CATEGORIES;
+    }
+  }
+  return DEFAULT_CATEGORIES;
+}
 
 type ViewMode = 'grid' | 'list' | 'table';
+
+// Category Editor Component
+function CategoryEditor({
+  categories,
+  onSave,
+  onClose,
+}: {
+  categories: { value: string; label: string; color: string }[];
+  onSave: (categories: { value: string; label: string; color: string }[]) => void;
+  onClose: () => void;
+}) {
+  const [editCategories, setEditCategories] = useState(categories);
+  const [newCategory, setNewCategory] = useState('');
+  const [newLabel, setNewLabel] = useState('');
+
+  const colorOptions = [
+    'bg-blue-500/10 text-blue-400 border-blue-500/30',
+    'bg-red-500/10 text-red-400 border-red-500/30',
+    'bg-orange-500/10 text-orange-400 border-orange-500/30',
+    'bg-purple-500/10 text-purple-400 border-purple-500/30',
+    'bg-pink-500/10 text-pink-400 border-pink-500/30',
+    'bg-green-500/10 text-green-400 border-green-500/30',
+    'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
+    'bg-cyan-500/10 text-cyan-400 border-cyan-500/30',
+    'bg-zinc-500/10 text-zinc-400 border-zinc-500/30',
+  ];
+
+  const updateCategory = (value: string, updates: Partial<{ label: string; color: string }>) => {
+    setEditCategories(prev => prev.map(c => 
+      c.value === value ? { ...c, ...updates } : c
+    ));
+  };
+
+  const addCategory = () => {
+    if (newCategory.trim() && newLabel.trim()) {
+      const value = newCategory.trim().toLowerCase().replace(/[^a-z0-9]/g, '-');
+      if (!editCategories.find(c => c.value === value)) {
+        setEditCategories(prev => [...prev, {
+          value,
+          label: newLabel.trim(),
+          color: colorOptions[prev.length % colorOptions.length],
+        }]);
+        setNewCategory('');
+        setNewLabel('');
+      }
+    }
+  };
+
+  const removeCategory = (value: string) => {
+    // Don't allow removing 'other' as it's fallback
+    if (value === 'other') return;
+    setEditCategories(prev => prev.filter(c => c.value !== value));
+  };
+
+  return (
+    <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-4 space-y-4 max-w-md">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-zinc-100">Manage Categories</h3>
+        <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Existing categories */}
+      <div className="space-y-2 max-h-[300px] overflow-y-auto">
+        {editCategories.map((cat, idx) => (
+          <div key={cat.value} className="flex items-center gap-2 p-2 rounded-lg bg-zinc-800">
+            <select
+              value={cat.color}
+              onChange={(e) => updateCategory(cat.value, { color: e.target.value })}
+              className={cn("rounded border px-2 py-1 text-xs", cat.color)}
+            >
+              {colorOptions.map((color, i) => (
+                <option key={i} value={color}>Color {i + 1}</option>
+              ))}
+            </select>
+            <input
+              value={cat.label}
+              onChange={(e) => updateCategory(cat.value, { label: e.target.value })}
+              className="flex-1 bg-transparent text-zinc-100 text-sm focus:outline-none"
+            />
+            {cat.value !== 'other' && (
+              <button
+                onClick={() => removeCategory(cat.value)}
+                className="text-zinc-500 hover:text-red-400"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Add new category */}
+      <div className="flex items-center gap-2 pt-2 border-t border-zinc-700">
+        <input
+          value={newLabel}
+          onChange={(e) => {
+            setNewLabel(e.target.value);
+            if (!newCategory) {
+              setNewCategory(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '-'));
+            }
+          }}
+          placeholder="New category..."
+          className="flex-1 rounded bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+        <button
+          onClick={addCategory}
+          disabled={!newLabel.trim()}
+          className="rounded bg-emerald-600 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="flex justify-end gap-2 pt-2">
+        <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-100">
+          Cancel
+        </button>
+        <button
+          onClick={() => { onSave(editCategories); onClose(); }}
+          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500"
+        >
+          Save Categories
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // Inline Edit Component
 function InlineEdit({ 
@@ -45,17 +191,15 @@ function InlineEdit({
   onCancel,
   placeholder = "Enter text...",
   className = "",
-  multiline = false,
 }: {
   value: string;
   onSave: (value: string) => void;
   onCancel: () => void;
   placeholder?: string;
   className?: string;
-  multiline?: boolean;
 }) {
   const [editValue, setEditValue] = useState(value);
-  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -70,47 +214,21 @@ function InlineEdit({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !multiline) {
-      e.preventDefault();
-      handleSave();
-    }
-    if (e.key === 'Escape') {
-      onCancel();
-    }
-  };
-
-  if (multiline) {
-    return (
-      <div className={cn("flex flex-col gap-1", className)}>
-        <textarea
-          ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          className="w-full rounded bg-zinc-700 px-2 py-1 text-zinc-100 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none"
-          rows={3}
-        />
-        <div className="flex gap-1">
-          <button onClick={handleSave} className="rounded bg-emerald-600 p-1 text-white hover:bg-emerald-500">
-            <Check className="h-3 w-3" />
-          </button>
-          <button onClick={onCancel} className="rounded bg-zinc-700 p-1 text-zinc-300 hover:bg-zinc-600">
-            <X className="h-3 w-3" />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className={cn("flex items-center gap-1", className)}>
       <input
-        ref={inputRef as React.RefObject<HTMLInputElement>}
+        ref={inputRef}
         value={editValue}
         onChange={(e) => setEditValue(e.target.value)}
-        onKeyDown={handleKeyDown}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            handleSave();
+          }
+          if (e.key === 'Escape') {
+            onCancel();
+          }
+        }}
         placeholder={placeholder}
         className="flex-1 min-w-0 rounded bg-zinc-700 px-2 py-0.5 text-zinc-100 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
       />
@@ -207,7 +325,61 @@ function TagEditor({
   );
 }
 
-// Sortable Prompt Card for Grid/List views
+// Delete Confirmation Component
+function DeleteConfirm({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={onConfirm}
+        className="rounded-lg bg-red-600 p-1.5 text-white hover:bg-red-500"
+        title="Confirm delete"
+      >
+        <Check className="h-4 w-4" />
+      </button>
+      <button
+        onClick={onCancel}
+        className="rounded-lg bg-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-600"
+        title="Cancel"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+// Copy Button Component (rounded with title)
+function CopyButton({
+  onCopy,
+  isCopied,
+  title = "Copy",
+}: {
+  onCopy: () => void;
+  isCopied: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      onClick={onCopy}
+      className={cn(
+        "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-all",
+        isCopied
+          ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
+          : "border-zinc-600 text-zinc-400 hover:border-emerald-500 hover:text-emerald-400"
+      )}
+    >
+      {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      {isCopied ? 'Copied!' : title}
+    </button>
+  );
+}
+
+// Sortable Prompt Card
 function SortablePromptCard({ 
   prompt, 
   isFavorite,
@@ -220,8 +392,8 @@ function SortablePromptCard({
   onRename,
   onEditTags,
   viewMode,
-  titleMaxWidth,
   allTags,
+  categories,
 }: {
   prompt: Prompt;
   isFavorite: boolean;
@@ -234,8 +406,8 @@ function SortablePromptCard({
   onRename: (newTitle: string) => void;
   onEditTags: (tags: string[]) => void;
   viewMode: 'grid' | 'list';
-  titleMaxWidth: number;
   allTags: string[];
+  categories: { value: string; label: string; color: string }[];
 }) {
   const {
     attributes,
@@ -248,10 +420,15 @@ function SortablePromptCard({
 
   const [isRenaming, setIsRenaming] = useState(false);
   const [isEditingTags, setIsEditingTags] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+  };
+
+  const getCategoryStyle = (category: string) => {
+    return categories.find(c => c.value === category)?.color || categories[categories.length - 1].color;
   };
 
   return (
@@ -266,7 +443,6 @@ function SortablePromptCard({
     >
       <div className="p-4">
         <div className="flex items-start justify-between gap-2">
-          {/* Drag Handle */}
           <button
             {...attributes}
             {...listeners}
@@ -296,85 +472,66 @@ function SortablePromptCard({
                 />
               ) : (
                 <h3 
-                  className="font-semibold text-zinc-100 cursor-pointer hover:text-emerald-400 transition-colors"
-                  style={{ maxWidth: titleMaxWidth }}
+                  className="font-semibold text-zinc-100 cursor-pointer hover:text-emerald-400 transition-colors truncate"
                   onClick={onEdit}
                   title={prompt.title}
                 >
-                  <span className="block truncate">{prompt.title}</span>
+                  {prompt.title}
                 </h3>
               )}
             </div>
             <div className="mt-1.5 flex items-center gap-2 text-xs">
               <span className={cn("rounded-md border px-2 py-0.5 font-medium", getCategoryStyle(prompt.category))}>
-                {prompt.category}
-              </span>
-              <span className="text-zinc-500">
-                {new Date(prompt.updatedAt).toLocaleDateString()}
+                {categories.find(c => c.value === prompt.category)?.label || prompt.category}
               </span>
             </div>
           </div>
           
           <div className="flex items-center gap-1 shrink-0">
-            <button 
-              onClick={() => setIsRenaming(true)}
-              className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-blue-400 opacity-0 group-hover:opacity-100"
-              title="Rename"
-            >
-              <Pencil className="h-4 w-4" />
-            </button>
-            <button 
-              onClick={onCopy}
-              className={cn(
-                "rounded-lg p-2 transition-colors",
-                isCopied 
-                  ? "bg-emerald-500/10 text-emerald-400" 
-                  : "text-zinc-500 hover:bg-zinc-800 hover:text-emerald-400"
-              )}
-              title="Copy Prompt"
-            >
-              {isCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            </button>
-            <button 
-              onClick={onEdit}
-              className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-blue-400 opacity-0 group-hover:opacity-100"
-              title="Edit Content"
-            >
-              <Edit2 className="h-4 w-4" />
-            </button>
-            <button 
-              onClick={onDelete}
-              className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-red-400 opacity-0 group-hover:opacity-100"
-              title="Delete"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            {isDeleting ? (
+              <DeleteConfirm
+                onConfirm={onDelete}
+                onCancel={() => setIsDeleting(false)}
+              />
+            ) : (
+              <>
+                <button 
+                  onClick={() => setIsRenaming(true)}
+                  className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-blue-400 opacity-0 group-hover:opacity-100"
+                  title="Rename"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button 
+                  onClick={onEdit}
+                  className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-blue-400 opacity-0 group-hover:opacity-100"
+                  title="Edit Content"
+                >
+                  <Edit2 className="h-4 w-4" />
+                </button>
+                <button 
+                  onClick={() => setIsDeleting(true)}
+                  className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-red-400 opacity-0 group-hover:opacity-100"
+                  title="Delete"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </>
+            )}
           </div>
         </div>
         
         {/* Prompt Content with Copy Button */}
         <div className="mt-3 relative group/content">
-          <div 
-            className="cursor-pointer rounded-lg bg-zinc-950 p-3 text-sm text-zinc-300 font-mono overflow-hidden hover:bg-zinc-950/80 transition-colors"
-            onClick={onCopy}
-          >
+          <div className="rounded-lg bg-zinc-950 p-3 text-sm text-zinc-300 font-mono overflow-hidden">
             <pre className={cn(
               "whitespace-pre-wrap break-words",
               viewMode === 'grid' ? "line-clamp-4" : "line-clamp-3"
             )}>{prompt.content}</pre>
           </div>
-          <button
-            onClick={onCopy}
-            className={cn(
-              "absolute top-2 right-2 rounded-lg p-2 transition-all",
-              isCopied
-                ? "bg-emerald-500/20 text-emerald-400"
-                : "bg-zinc-800/80 text-zinc-400 hover:text-emerald-400 opacity-0 group-hover/content:opacity-100"
-            )}
-            title="Copy"
-          >
-            {isCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-          </button>
+          <div className="mt-2 flex justify-end">
+            <CopyButton onCopy={onCopy} isCopied={isCopied} />
+          </div>
         </div>
 
         {/* Tags */}
@@ -410,7 +567,6 @@ function SortablePromptCard({
           </div>
         )}
         
-        {/* Add tags button if no tags */}
         {prompt.tags.length === 0 && !isEditingTags && (
           <button
             onClick={() => setIsEditingTags(true)}
@@ -437,8 +593,8 @@ function PromptTableRow({
   onTagClick,
   onRename,
   onEditTags,
-  titleMaxWidth,
   allTags,
+  categories,
 }: {
   prompt: Prompt;
   isFavorite: boolean;
@@ -450,11 +606,16 @@ function PromptTableRow({
   onTagClick: (tag: string) => void;
   onRename: (newTitle: string) => void;
   onEditTags: (tags: string[]) => void;
-  titleMaxWidth: number;
   allTags: string[];
+  categories: { value: string; label: string; color: string }[];
 }) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [isEditingTags, setIsEditingTags] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const getCategoryStyle = (category: string) => {
+    return categories.find(c => c.value === category)?.color || categories[categories.length - 1].color;
+  };
 
   return (
     <tr className="group border-b border-zinc-800 hover:bg-zinc-800/50 transition-colors">
@@ -481,9 +642,7 @@ function PromptTableRow({
           <div className="flex items-center gap-1">
             <button
               onClick={onEdit}
-              className="text-left text-zinc-100 hover:text-emerald-400 font-medium truncate block"
-              style={{ maxWidth: titleMaxWidth }}
-              title={prompt.title}
+              className="text-left text-zinc-100 hover:text-emerald-400 font-medium truncate block max-w-[300px]"
             >
               {prompt.title}
             </button>
@@ -498,26 +657,15 @@ function PromptTableRow({
       </td>
       <td className="py-2 px-3">
         <span className={cn("rounded-md border px-2 py-0.5 text-xs font-medium", getCategoryStyle(prompt.category))}>
-          {prompt.category}
+          {categories.find(c => c.value === prompt.category)?.label || prompt.category}
         </span>
       </td>
-      <td className="py-2 px-3 relative group/content">
-        <div 
-          className="flex items-center gap-1"
-          onClick={onCopy}
-        >
-          <span className="text-zinc-500 text-xs truncate block cursor-pointer hover:text-zinc-300" style={{ maxWidth: 200 }}>
+      <td className="py-2 px-3">
+        <div className="flex items-center gap-2">
+          <span className="text-zinc-500 text-xs truncate max-w-[150px]">
             {prompt.content.substring(0, 50)}...
           </span>
-          <button
-            onClick={onCopy}
-            className={cn(
-              "p-1 rounded transition-all",
-              isCopied ? "text-emerald-400" : "text-zinc-500 hover:text-emerald-400 opacity-0 group-hover/content:opacity-100"
-            )}
-          >
-            {isCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          </button>
+          <CopyButton onCopy={onCopy} isCopied={isCopied} />
         </div>
       </td>
       <td className="py-2 px-3">
@@ -550,37 +698,35 @@ function PromptTableRow({
           </div>
         )}
       </td>
-      <td className="py-2 px-3 text-zinc-500 text-xs whitespace-nowrap">
-        {new Date(prompt.updatedAt).toLocaleDateString()}
-      </td>
       <td className="py-2 px-3">
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={onCopy}
-            className={cn(
-              "rounded p-1.5 transition-colors",
-              isCopied
-                ? "bg-emerald-500/10 text-emerald-400"
-                : "text-zinc-500 hover:bg-zinc-700 hover:text-emerald-400"
-            )}
-            title="Copy"
-          >
-            {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          </button>
-          <button
-            onClick={onEdit}
-            className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-blue-400"
-            title="Edit"
-          >
-            <Edit2 className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={onDelete}
-            className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-red-400"
-            title="Delete"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+        <div className="flex items-center gap-1">
+          {isDeleting ? (
+            <DeleteConfirm onConfirm={onDelete} onCancel={() => setIsDeleting(false)} />
+          ) : (
+            <>
+              <button
+                onClick={onCopy}
+                className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-emerald-400 opacity-0 group-hover:opacity-100"
+                title="Copy"
+              >
+                {isCopied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                onClick={onEdit}
+                className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-blue-400 opacity-0 group-hover:opacity-100"
+                title="Edit"
+              >
+                <Edit2 className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setIsDeleting(true)}
+                className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-red-400 opacity-0 group-hover:opacity-100"
+                title="Delete"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
         </div>
       </td>
     </tr>
@@ -598,9 +744,7 @@ function PromptCompactItem({
   onToggleFavorite,
   onTagClick,
   onRename,
-  onEditTags,
-  titleMaxWidth,
-  allTags,
+  categories,
 }: {
   prompt: Prompt;
   isFavorite: boolean;
@@ -611,15 +755,17 @@ function PromptCompactItem({
   onToggleFavorite: () => void;
   onTagClick: (tag: string) => void;
   onRename: (newTitle: string) => void;
-  onEditTags: (tags: string[]) => void;
-  titleMaxWidth: number;
-  allTags: string[];
+  categories: { value: string; label: string; color: string }[];
 }) {
   const [isRenaming, setIsRenaming] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const getCategoryStyle = (category: string) => {
+    return categories.find(c => c.value === category)?.color || categories[categories.length - 1].color;
+  };
 
   return (
     <div className="group flex items-center gap-3 py-2 px-3 rounded-lg border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50 transition-all">
-      {/* Favorite */}
       <button
         onClick={onToggleFavorite}
         className="shrink-0 text-zinc-600 hover:text-amber-400"
@@ -630,7 +776,6 @@ function PromptCompactItem({
         }
       </button>
 
-      {/* Title */}
       {isRenaming ? (
         <InlineEdit
           value={prompt.title}
@@ -644,7 +789,6 @@ function PromptCompactItem({
           <button
             onClick={onEdit}
             className="text-left text-zinc-100 hover:text-emerald-400 font-medium truncate"
-            style={{ maxWidth: titleMaxWidth }}
           >
             {prompt.title}
           </button>
@@ -657,60 +801,35 @@ function PromptCompactItem({
         </div>
       )}
 
-      {/* Category */}
       <span className={cn("shrink-0 rounded-md border px-2 py-0.5 text-xs font-medium", getCategoryStyle(prompt.category))}>
-        {prompt.category}
+        {categories.find(c => c.value === prompt.category)?.label || prompt.category}
       </span>
 
-      {/* Tags - simplified for compact view */}
-      <div className="hidden sm:flex flex-wrap gap-1 max-w-[150px]">
-        {prompt.tags.slice(0, 2).map(tag => (
-          <span
-            key={tag}
-            className="cursor-pointer rounded-full bg-zinc-700 px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-zinc-600"
-            onClick={() => onTagClick(tag)}
-          >
-            {tag}
-          </span>
-        ))}
-        {prompt.tags.length > 2 && (
-          <span className="text-xs text-zinc-500">+{prompt.tags.length - 2}</span>
-        )}
+      <div className="flex items-center gap-1">
+        <CopyButton onCopy={onCopy} isCopied={isCopied} />
       </div>
 
-      {/* Date */}
-      <span className="hidden md:block text-zinc-500 text-xs whitespace-nowrap">
-        {new Date(prompt.updatedAt).toLocaleDateString()}
-      </span>
-
-      {/* Actions */}
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          onClick={onCopy}
-          className={cn(
-            "rounded p-1.5 transition-colors",
-            isCopied
-              ? "bg-emerald-500/10 text-emerald-400"
-              : "text-zinc-500 hover:bg-zinc-700 hover:text-emerald-400"
-          )}
-          title="Copy"
-        >
-          {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-        </button>
-        <button
-          onClick={onEdit}
-          className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-blue-400"
-          title="Edit"
-        >
-          <Edit2 className="h-3.5 w-3.5" />
-        </button>
-        <button
-          onClick={onDelete}
-          className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-red-400"
-          title="Delete"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+      <div className="flex items-center gap-1">
+        {isDeleting ? (
+          <DeleteConfirm onConfirm={onDelete} onCancel={() => setIsDeleting(false)} />
+        ) : (
+          <>
+            <button
+              onClick={onEdit}
+              className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-blue-400 opacity-0 group-hover:opacity-100"
+              title="Edit"
+            >
+              <Edit2 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => setIsDeleting(true)}
+              className="rounded p-1.5 text-zinc-500 hover:bg-zinc-700 hover:text-red-400 opacity-0 group-hover:opacity-100"
+              title="Delete"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -721,10 +840,12 @@ function NewPromptForm({
   onSave, 
   onCancel,
   allTags,
+  categories,
 }: {
   onSave: (data: { title: string; category: string; content: string; tags: string[] }) => void;
   onCancel: () => void;
   allTags: string[];
+  categories: { value: string; label: string; color: string }[];
 }) {
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('other');
@@ -766,7 +887,7 @@ function NewPromptForm({
           onChange={(e) => setCategory(e.target.value)}
           className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100 focus:border-emerald-500 focus:outline-none"
         >
-          {DEFAULT_CATEGORIES.map(cat => (
+          {categories.map(cat => (
             <option key={cat.value} value={cat.value}>{cat.label}</option>
           ))}
         </select>
@@ -780,7 +901,6 @@ function NewPromptForm({
         rows={5}
       />
       
-      {/* Tags */}
       <div className="flex flex-wrap items-center gap-2">
         {tags.map(tag => (
           <span key={tag} className="flex items-center gap-1 rounded-full bg-zinc-700 px-2 py-0.5 text-xs text-zinc-300">
@@ -845,7 +965,8 @@ export function Prompts() {
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-  const [titleMaxWidth, setTitleMaxWidth] = useState(200);
+  const [categories, setCategories] = useState(loadCategories);
+  const [showCategoryEditor, setShowCategoryEditor] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -855,6 +976,11 @@ export function Prompts() {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
+
+  // Save categories to localStorage when changed
+  useEffect(() => {
+    localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(categories));
+  }, [categories]);
 
   // Get all unique tags from all prompts
   const allTags = useMemo(() => {
@@ -883,9 +1009,7 @@ export function Prompts() {
   };
 
   const handleDelete = (id: string) => {
-    if (confirm('Delete this prompt?')) {
-      promptsApi.delete(id);
-    }
+    promptsApi.delete(id);
   };
 
   const handleRename = (id: string, newTitle: string) => {
@@ -955,9 +1079,13 @@ export function Prompts() {
     onTagClick: (tag: string) => setSearch(tag),
     onRename: (newTitle: string) => handleRename(prompt.id, newTitle),
     onEditTags: (tags: string[]) => handleEditTags(prompt.id, tags),
-    titleMaxWidth,
     allTags,
+    categories,
   });
+
+  const getCategoryStyle = (category: string) => {
+    return categories.find(c => c.value === category)?.color || categories[categories.length - 1].color;
+  };
 
   return (
     <div className="space-y-6">
@@ -988,20 +1116,6 @@ export function Prompts() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        
-        <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-zinc-500" />
-          <select 
-            className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          >
-            <option value="all">All Categories</option>
-            {DEFAULT_CATEGORIES.map(cat => (
-              <option key={cat.value} value={cat.value}>{cat.label}</option>
-            ))}
-          </select>
-        </div>
 
         <button
           onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
@@ -1015,20 +1129,6 @@ export function Prompts() {
           <Star className={cn("h-4 w-4", showFavoritesOnly && "fill-amber-400")} />
           Favorites
         </button>
-
-        {/* Title Width Slider */}
-        <div className="flex items-center gap-2">
-          <Settings2 className="h-4 w-4 text-zinc-500" />
-          <input
-            type="range"
-            min={100}
-            max={400}
-            value={titleMaxWidth}
-            onChange={(e) => setTitleMaxWidth(Number(e.target.value))}
-            className="w-20 h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-            title={`Title width: ${titleMaxWidth}px`}
-          />
-        </div>
 
         {/* View Mode Toggle */}
         <div className="flex rounded-lg border border-zinc-700 bg-zinc-800 p-0.5">
@@ -1066,7 +1166,7 @@ export function Prompts() {
       </div>
 
       {/* Category Pills */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => setFilter('all')}
           className={cn(
@@ -1078,13 +1178,12 @@ export function Prompts() {
         >
           All ({prompts.length})
         </button>
-        {DEFAULT_CATEGORIES.map(cat => {
+        {categories.map(cat => {
           const count = prompts.filter(p => p.category === cat.value).length;
-          if (count === 0) return null;
           return (
             <button
               key={cat.value}
-              onClick={() => setFilter(cat.value)}
+              onClick={() => setFilter(filter === cat.value ? 'all' : cat.value)}
               className={cn(
                 "rounded-full px-3 py-1 text-xs font-medium border transition-colors",
                 filter === cat.value 
@@ -1096,7 +1195,25 @@ export function Prompts() {
             </button>
           );
         })}
+        <button
+          onClick={() => setShowCategoryEditor(true)}
+          className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-500 hover:text-emerald-400 hover:border-emerald-500/50"
+          title="Manage categories"
+        >
+          <Settings2 className="h-4 w-4" />
+        </button>
       </div>
+
+      {/* Category Editor Modal */}
+      {showCategoryEditor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <CategoryEditor
+            categories={categories}
+            onSave={(newCategories) => setCategories(newCategories)}
+            onClose={() => setShowCategoryEditor(false)}
+          />
+        </div>
+      )}
 
       {/* New Prompt Form */}
       {isCreating && (
@@ -1104,6 +1221,7 @@ export function Prompts() {
           onSave={handleCreate}
           onCancel={() => setIsCreating(false)}
           allTags={allTags}
+          categories={categories}
         />
       )}
 
@@ -1122,16 +1240,13 @@ export function Prompts() {
                 <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider w-28">
                   Category
                 </th>
-                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider hidden lg:table-cell">
+                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">
                   Preview
                 </th>
-                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider hidden md:table-cell">
+                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">
                   Tags
                 </th>
-                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider hidden sm:table-cell w-24">
-                  Updated
-                </th>
-                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider w-24">
+                <th className="py-2.5 px-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider w-32">
                   Actions
                 </th>
               </tr>
@@ -1191,12 +1306,12 @@ export function Prompts() {
         </div>
       )}
 
-      {/* Edit Modal (only for content editing) */}
+      {/* Edit Modal */}
       {isEditing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-2xl rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl">
             <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
-              <h2 className="text-xl font-bold text-zinc-100">Edit Prompt Content</h2>
+              <h2 className="text-xl font-bold text-zinc-100">Edit Prompt</h2>
               <button onClick={() => setIsEditing(null)} className="text-zinc-400 hover:text-zinc-200">
                 <X className="h-5 w-5" />
               </button>
@@ -1208,57 +1323,52 @@ export function Prompts() {
                   name="title" 
                   defaultValue={isEditing?.title}
                   required
-                  placeholder="e.g., SQL Injection Detection"
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none" 
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-zinc-100 focus:border-emerald-500 focus:outline-none" 
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-zinc-400">Category</label>
-                  <select 
-                    name="category" 
-                    defaultValue={isEditing?.category || 'other'}
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-zinc-100 focus:border-emerald-500 focus:outline-none"
-                  >
-                    {DEFAULT_CATEGORIES.map(cat => (
-                      <option key={cat.value} value={cat.value}>{cat.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-zinc-400">Tags (comma separated)</label>
-                  <input 
-                    name="tags" 
-                    defaultValue={isEditing?.tags.join(', ')}
-                    placeholder="llm, gpt, injection"
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none" 
-                  />
-                </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-zinc-400">Category</label>
+                <select 
+                  name="category" 
+                  defaultValue={isEditing?.category || 'other'}
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-zinc-100 focus:border-emerald-500 focus:outline-none"
+                >
+                  {categories.map(cat => (
+                    <option key={cat.value} value={cat.value}>{cat.label}</option>
+                  ))}
+                </select>
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-zinc-400">Prompt Content</label>
+                <label className="mb-1.5 block text-sm font-medium text-zinc-400">Tags (comma separated)</label>
+                <input 
+                  name="tags" 
+                  defaultValue={isEditing?.tags.join(', ')}
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-zinc-100 focus:border-emerald-500 focus:outline-none" 
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-zinc-400">Content</label>
                 <textarea 
                   name="content" 
                   defaultValue={isEditing?.content}
                   required
                   rows={10}
-                  placeholder="Enter your prompt here..."
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 font-mono text-sm text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none" 
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 font-mono text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none" 
                 />
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-zinc-800">
                 <button 
                   type="button" 
                   onClick={() => setIsEditing(null)}
-                  className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100 transition-colors"
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit" 
-                  className="rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
+                  className="rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-500"
                 >
-                  Update Prompt
+                  Update
                 </button>
               </div>
             </form>
