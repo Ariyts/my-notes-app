@@ -6,10 +6,9 @@ import { GlobalSearch } from './GlobalSearch';
 import { ExportImport } from './ExportImport';
 import { GistSync } from './GistSync';
 import { ExportPanel } from './ExportPanel';
-import { useSections } from '../lib/SectionsContext';
+import { WorkspaceBar } from './workspaces/WorkspaceBar';
 
 export function Layout() {
-  const { sections, getSectionData } = useSections();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isGistOpen, setIsGistOpen] = useState(false);
@@ -38,11 +37,8 @@ export function Layout() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 lg:flex-row">
-      {/* Mobile Navigation */}
-      <MobileNav onOpenSearch={() => setIsSearchOpen(true)} />
-      
       {/* Desktop Sidebar */}
-      <div className="hidden lg:block">
+      <div className="hidden lg:flex flex-col">
         <Sidebar 
           onOpenSearch={() => setIsSearchOpen(true)} 
           onOpenExport={() => setIsExportOpen(true)}
@@ -51,12 +47,23 @@ export function Layout() {
         />
       </div>
       
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto bg-zinc-900/50">
-        <div className="min-h-full p-4 lg:p-8">
-          <Outlet />
+      {/* Main Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Workspace Bar (top) */}
+        <div className="hidden lg:block">
+          <WorkspaceBar />
         </div>
-      </main>
+        
+        {/* Mobile Navigation */}
+        <MobileNav onOpenSearch={() => setIsSearchOpen(true)} />
+        
+        {/* Main Content */}
+        <main className="flex-1 overflow-y-auto bg-zinc-900/50">
+          <div className="min-h-full p-4 lg:p-8">
+            <Outlet />
+          </div>
+        </main>
+      </div>
 
       {/* Global Modals */}
       <GlobalSearch isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />

@@ -2,6 +2,7 @@
  * Sidebar
  * 
  * Dynamic sidebar that generates navigation from sections configuration.
+ * Filters sections by active workspace.
  */
 
 import { useState } from 'react';
@@ -27,12 +28,14 @@ import {
   Bug,
   Globe,
   FileText,
+  Pencil,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '../utils/cn';
 import { gistSync } from '../lib/storage-enhanced';
-import { useSections } from '../lib/SectionsContext';
+import { useWorkspaces } from '../lib/WorkspaceContext';
 import { ContentTypeId } from '../types/sections';
+import { EditSectionModal } from './sections/EditSectionModal';
 
 // Icon mapping for dynamic types
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -72,11 +75,11 @@ function ClearStorageModal({ onClose, onConfirm }: { onClose: () => void; onConf
           <ul className="space-y-1.5 text-sm text-zinc-400">
             <li className="flex items-center gap-2">
               <span className="h-1 w-1 rounded-full bg-zinc-600" />
-              All sections and their content
+              All workspaces and sections
             </li>
             <li className="flex items-center gap-2">
               <span className="h-1 w-1 rounded-full bg-zinc-600" />
-              Custom configurations
+              All content and configurations
             </li>
             <li className="flex items-center gap-2">
               <span className="h-1 w-1 rounded-full bg-zinc-600" />
@@ -230,12 +233,22 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
   const location = useLocation();
   const gistConfig = gistSync.getConfig();
   const isGistConnected = !!gistConfig.gistId;
-  const { sections, addSection, deleteSection, clearAll } = useSections();
+  
+  // Use workspace context
+  const { 
+    sections, 
+    activeWorkspace,
+    addSection, 
+    deleteSection, 
+    updateSection,
+    getSectionData,
+  } = useWorkspaces();
+  
   const [showClearModal, setShowClearModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingSection, setEditingSection] = useState<string | null>(null);
 
   const handleClearStorage = () => {
-    clearAll();
     localStorage.clear();
     sessionStorage.clear();
     window.location.reload();
@@ -254,7 +267,7 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
 
   // Stats for footer
   const totalItems = sections.reduce((sum, s) => {
-    const items = JSON.parse(localStorage.getItem(`section-data-${s.id}`) || '[]');
+    const items = getSectionData(s.id);
     return sum + items.length;
   }, 0);
 
@@ -267,7 +280,7 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
         </div>
         <div>
           <span className="text-lg font-bold text-zinc-100">Pentest Hub</span>
-          <p className="text-xs text-zinc-500">Dynamic Vault</p>
+          <p className="text-xs text-zinc-500">{activeWorkspace?.name || 'Vault'}</p>
         </div>
       </div>
 
@@ -302,6 +315,7 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
           const route = `/section/${section.id}`;
           const isActive = location.pathname === route;
           const IconComponent = ICON_MAP[section.icon] || Terminal;
+          const canDelete = !section.isSystem && !section.isDefault;
 
           return (
             <Link
@@ -313,29 +327,64 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
                   ? "bg-emerald-600/10 text-emerald-400 border-l-2 border-emerald-500 -ml-0.5 pl-[calc(0.75rem+2px)]" 
                   : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
               )}
+              style={{ borderLeftColor: section.color && !isActive ? section.color : undefined }}
             >
+              {/* Color indicator */}
+              {section.color && (
+                <div 
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: section.color }}
+                />
+              )}
               <IconComponent className={cn("h-4 w-4", isActive && "text-emerald-400")} />
               <div className="flex-1 truncate">
                 {section.name}
               </div>
-              {!section.isDefault && (
+              
+              {/* Actions on hover */}
+              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    if (confirm(`Delete section "${section.name}"?`)) {
-                      deleteSection(section.id);
-                    }
+                    setEditingSection(section.id);
                   }}
-                  className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 p-0.5"
-                  title="Delete section"
+                  className="p-1 text-zinc-500 hover:text-blue-400 hover:bg-zinc-700 rounded"
+                  title="Edit section"
                 >
-                  <X className="h-3 w-3" />
+                  <Pencil className="h-3 w-3" />
                 </button>
-              )}
+                {canDelete && (
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (confirm(`Delete section "${section.name}"?`)) {
+                        deleteSection(section.id);
+                      }
+                    }}
+                    className="p-1 text-zinc-500 hover:text-red-400 hover:bg-zinc-700 rounded"
+                    title="Delete section"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
             </Link>
           );
         })}
+        
+        {sections.length === 0 && (
+          <div className="px-3 py-4 text-center text-sm text-zinc-500">
+            No sections yet.
+            <button 
+              onClick={() => setShowAddModal(true)}
+              className="block mx-auto mt-2 text-emerald-400 hover:text-emerald-300"
+            >
+              + Add first section
+            </button>
+          </div>
+        )}
       </nav>
 
       {/* Bottom Actions */}
@@ -421,6 +470,12 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
         <AddSectionModal
           onClose={() => setShowAddModal(false)}
           onAdd={handleAddSection}
+        />
+      )}
+      {editingSection && (
+        <EditSectionModal
+          sectionId={editingSection}
+          onClose={() => setEditingSection(null)}
         />
       )}
     </div>

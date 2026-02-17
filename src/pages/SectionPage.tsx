@@ -2,11 +2,11 @@
  * Section Page
  * 
  * Universal page component that renders any section based on its type.
- * Replaces individual page components (Prompts, Notes, Snippets, Resources).
+ * Uses WorkspaceContext for data access.
  */
 
 import { useParams, Navigate } from 'react-router-dom';
-import { useSection, useSections } from '../lib/SectionsContext';
+import { useWorkspaces } from '../lib/WorkspaceContext';
 import { ContentRenderer } from '../components/content-types/ContentRenderer';
 import { Terminal, FileText, Database, Link, Table } from 'lucide-react';
 
@@ -21,10 +21,19 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
 
 export function SectionPage() {
   const { sectionId } = useParams<{ sectionId: string }>();
-  const { section, items, setItems } = useSection(sectionId || '');
-  const { sections } = useSections();
-
-  // If section doesn't exist, redirect to first available section
+  const { 
+    allSections, 
+    sections, 
+    activeWorkspaceId,
+    getSectionData, 
+    setSectionData 
+  } = useWorkspaces();
+  
+  // Find section in all sections (not just active workspace)
+  const section = allSections.find(s => s.id === sectionId);
+  const items = getSectionData(sectionId || '');
+  
+  // If section doesn't exist, redirect to first section of active workspace
   if (!section) {
     const firstSection = sections[0];
     if (firstSection) {
@@ -33,12 +42,15 @@ export function SectionPage() {
     // Fallback if no sections exist
     return <SectionNotFound sectionId={sectionId || ''} />;
   }
+  
+  // If section belongs to different workspace, we still show it
+  // (user might have opened a direct link)
 
   return (
     <ContentRenderer
       section={section}
       items={items}
-      onItemsChange={setItems}
+      onItemsChange={(newItems) => setSectionData(sectionId || '', newItems)}
     />
   );
 }

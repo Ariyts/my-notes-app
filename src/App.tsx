@@ -4,7 +4,7 @@ import { Settings } from './pages/Settings';
 import { ContentTypesManager } from './pages/ContentTypes';
 import { SectionPage } from './pages/SectionPage';
 import { DataProvider } from './lib/DataContext';
-import { SectionsProvider } from './lib/SectionsContext';
+import { WorkspaceProvider } from './lib/WorkspaceContext';
 import { useEffect } from 'react';
 
 // Legacy route redirector - redirects old routes to new section routes
@@ -25,7 +25,7 @@ export function App() {
 
   return (
     <DataProvider>
-      <SectionsProvider>
+      <WorkspaceProvider>
         <HashRouter>
           <Routes>
             <Route path="/" element={<Layout />}>
@@ -52,7 +52,7 @@ export function App() {
             </Route>
           </Routes>
         </HashRouter>
-      </SectionsProvider>
+      </WorkspaceProvider>
     </DataProvider>
   );
 }
