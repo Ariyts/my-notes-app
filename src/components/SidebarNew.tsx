@@ -224,9 +224,10 @@ interface SidebarProps {
   onOpenSearch: () => void;
   onOpenExport: () => void;
   onOpenExportPanel: () => void;
+  onLock?: () => void;
 }
 
-export function Sidebar({ onOpenSearch, onOpenExport, onOpenExportPanel }: SidebarProps) {
+export function Sidebar({ onOpenSearch, onOpenExport, onOpenExportPanel, onLock }: SidebarProps) {
   const location = useLocation();
   
   // Use workspace context
@@ -415,10 +416,15 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenExportPanel }: Sideb
           <Settings className="h-4 w-4" />
           <span>Settings</span>
         </Link>
-        <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-red-400/70 hover:bg-red-500/10 hover:text-red-400">
-          <Lock className="h-4 w-4" />
-          <span>Lock Vault</span>
-        </button>
+        {onLock && (
+          <button 
+            onClick={onLock}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-red-400/70 hover:bg-red-500/10 hover:text-red-400"
+          >
+            <Lock className="h-4 w-4" />
+            <span>Lock Vault</span>
+          </button>
+        )}
       </div>
 
       {/* Stats Footer */}

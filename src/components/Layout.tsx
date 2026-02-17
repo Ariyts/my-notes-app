@@ -7,7 +7,11 @@ import { ExportImport } from './ExportImport';
 import { ExportPanel } from './ExportPanel';
 import { WorkspaceBar } from './workspaces/WorkspaceBar';
 
-export function Layout() {
+interface LayoutProps {
+  onLock?: () => void;
+}
+
+export function Layout({ onLock }: LayoutProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isExportPanelOpen, setIsExportPanelOpen] = useState(false);
@@ -40,6 +44,7 @@ export function Layout() {
           onOpenSearch={() => setIsSearchOpen(true)} 
           onOpenExport={() => setIsExportOpen(true)}
           onOpenExportPanel={() => setIsExportPanelOpen(true)}
+          onLock={onLock}
         />
       </div>
       

@@ -2,12 +2,13 @@
  * Repository Sync Component
  * 
  * Advanced GitHub repository synchronization with:
- * - Change preview before commit
+ * - Detailed change preview (real diff with item-level details)
+ * - AES-256 encryption support
  * - Repository selection via token
  * - Pull/Push functionality
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Github,
   RefreshCw,
@@ -26,8 +27,22 @@ import {
   CheckCircle,
   FileText,
   Trash2,
+  Lock,
+  LockOpen,
+  ChevronDown,
+  ChevronRight,
+  Folder,
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import { 
+  EncryptedData, 
+  encrypt, 
+  decrypt, 
+  isEncryptionSetUp,
+  getSessionPassword,
+  isSessionActive,
+} from '../../lib/crypto';
+import { Workspace, Section, SectionItem } from '../../types/sections';
 
 // Types
 interface RepoSyncConfig {
@@ -38,6 +53,29 @@ interface RepoSyncConfig {
   dataPath: string;
   lastSyncSha?: string;
   lastSyncAt?: string;
+  encryptionEnabled?: boolean;
+}
+
+// Detailed change types
+interface ItemChange {
+  type: 'added' | 'modified' | 'deleted';
+  itemName: string;
+  itemId: string;
+  field?: string;
+}
+
+interface FileChange {
+  path: string;
+  workspaceName?: string;
+  status: 'added' | 'modified' | 'deleted' | 'unchanged';
+  additions: number;
+  deletions: number;
+  sizeBytes: number;
+  itemChanges: ItemChange[];
+  selected: boolean;
+  localSize?: number;
+  remoteSize?: number;
+  expanded?: boolean;
 }
 
 interface SyncChange {
@@ -81,6 +119,86 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Compute detailed diff between local and remote items
+function computeDiff(
+  localItems: SectionItem[] | null,
+  remoteItems: SectionItem[] | null
+): { additions: number; deletions: number; itemChanges: ItemChange[] } {
+  const localMap = new Map<string, SectionItem>();
+  const remoteMap = new Map<string, SectionItem>();
+  
+  if (localItems) {
+    localItems.forEach(item => localMap.set(item.id, item));
+  }
+  if (remoteItems) {
+    remoteItems.forEach(item => remoteMap.set(item.id, item));
+  }
+  
+  const itemChanges: ItemChange[] = [];
+  let additions = 0;
+  let deletions = 0;
+  
+  // Find added and modified items
+  for (const [id, localItem] of localMap) {
+    const remoteItem = remoteMap.get(id);
+    const itemName = (localItem.data?.name as string) || 
+                     (localItem.data?.title as string) || 
+                     `Item ${id.slice(0, 8)}`;
+    
+    if (!remoteItem) {
+      // New item
+      itemChanges.push({
+        type: 'added',
+        itemName,
+        itemId: id,
+      });
+      const localLines = JSON.stringify(localItem, null, 2).split('\n').length;
+      additions += localLines;
+    } else {
+      // Check for modifications
+      const localJson = JSON.stringify(localItem);
+      const remoteJson = JSON.stringify(remoteItem);
+      
+      if (localJson !== remoteJson) {
+        itemChanges.push({
+          type: 'modified',
+          itemName,
+          itemId: id,
+        });
+        
+        const localLines = JSON.stringify(localItem, null, 2).split('\n').length;
+        const remoteLines = JSON.stringify(remoteItem, null, 2).split('\n').length;
+        
+        if (localLines > remoteLines) {
+          additions += localLines - remoteLines;
+        } else {
+          deletions += remoteLines - localLines;
+        }
+      }
+    }
+  }
+  
+  // Find deleted items
+  for (const [id, remoteItem] of remoteMap) {
+    if (!localMap.has(id)) {
+      const itemName = (remoteItem.data?.name as string) || 
+                       (remoteItem.data?.title as string) || 
+                       `Item ${id.slice(0, 8)}`;
+      
+      itemChanges.push({
+        type: 'deleted',
+        itemName,
+        itemId: id,
+      });
+      
+      const remoteLines = JSON.stringify(remoteItem, null, 2).split('\n').length;
+      deletions += remoteLines;
+    }
+  }
+  
+  return { additions, deletions, itemChanges };
+}
+
 // Props
 interface RepositorySyncProps {
   onDataChange?: () => void;
@@ -93,7 +211,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   const [showConnectModal, setShowConnectModal] = useState(!config?.token);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
-  const [changes, setChanges] = useState<SyncChange[]>([]);
+  const [changes, setChanges] = useState<FileChange[]>([]);
   const [commitMessage, setCommitMessage] = useState('');
   const [showChanges, setShowChanges] = useState(false);
   
@@ -108,11 +226,16 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   const [dataPath, setDataPath] = useState('data');
   const [loadingRepos, setLoadingRepos] = useState(false);
   
+  // Encryption state
+  const [encryptionEnabled, setEncryptionEnabled] = useState(config?.encryptionEnabled ?? false);
+  const encryptionAvailable = isEncryptionSetUp() && isSessionActive();
+  
   // Load config on mount
   useEffect(() => {
     const saved = loadConfig();
     if (saved) {
       setConfig(saved);
+      setEncryptionEnabled(saved.encryptionEnabled ?? false);
       setShowConnectModal(!saved.token);
     }
   }, []);
@@ -177,6 +300,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       repo,
       branch,
       dataPath: dataPath.startsWith('/') ? dataPath.slice(1) : dataPath,
+      encryptionEnabled,
     };
     
     saveConfig(newConfig);
@@ -196,7 +320,60 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
     setShowConnectModal(true);
   };
   
-  // Detect changes
+  // Get all local data organized by workspaces
+  const getLocalData = useCallback(() => {
+    const workspaces: Workspace[] = JSON.parse(localStorage.getItem('pentest-hub-workspaces') || '[]');
+    const sections: Section[] = JSON.parse(localStorage.getItem('pentest-hub-sections') || '[]');
+    
+    const data: Record<string, { workspace: Workspace; sections: { section: Section; items: SectionItem[] }[] }> = {};
+    
+    for (const workspace of workspaces) {
+      data[workspace.id] = {
+        workspace,
+        sections: [],
+      };
+      
+      const workspaceSections = sections.filter(s => s.workspaceId === workspace.id);
+      for (const section of workspaceSections) {
+        const items: SectionItem[] = JSON.parse(
+          localStorage.getItem(`section-data-${section.id}`) || '[]'
+        );
+        data[workspace.id].sections.push({ section, items });
+      }
+    }
+    
+    return { workspaces, sections, data };
+  }, []);
+  
+  // Fetch remote file content
+  const fetchRemoteFile = async (path: string): Promise<{ content: string; sha: string } | null> => {
+    if (!config) return null;
+    
+    try {
+      const res = await fetch(
+        `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${path}?ref=${config.branch}`,
+        {
+          headers: {
+            Authorization: `Bearer ${config.token}`,
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+        }
+      );
+      
+      if (res.ok) {
+        const data = await res.json();
+        const content = decodeURIComponent(escape(atob(data.content)));
+        return { content, sha: data.sha };
+      }
+    } catch (err) {
+      console.error('Failed to fetch remote file:', path, err);
+    }
+    
+    return null;
+  };
+  
+  // Detect changes with detailed diff
   const detectChanges = async () => {
     if (!config) return;
     
@@ -204,79 +381,148 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
     setSyncMessage({ type: 'info', text: 'Detecting changes...' });
     
     try {
-      // Get current data from localStorage
-      const localData: Record<string, string> = {};
-      const files = ['prompts', 'notes', 'snippets', 'resources', 'content-types', 'workspaces', 'sections'];
+      const { workspaces, sections, data: localData } = getLocalData();
+      const changes: FileChange[] = [];
       
-      files.forEach(file => {
-        const key = file === 'content-types' ? 'content-types' : file;
-        const data = localStorage.getItem(`pentest_${key}`) || localStorage.getItem(key);
-        if (data) {
-          localData[`${file}.json`] = data;
-        }
-      });
-      
-      // Get remote data
-      const remoteChanges: SyncChange[] = [];
-      
-      for (const [filename, content] of Object.entries(localData)) {
-        const localSize = new Blob([content]).size;
+      // Process each workspace
+      for (const workspace of workspaces) {
+        const workspaceData = localData[workspace.id];
+        if (!workspaceData) continue;
         
-        // Try to get remote file
-        const remoteRes = await fetch(
-          `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${config.dataPath}/${filename}?ref=${config.branch}`,
-          {
-            headers: {
-              Authorization: `Bearer ${config.token}`,
-              Accept: 'application/vnd.github+json',
-              'X-GitHub-Api-Version': '2022-11-28',
-            },
-          }
-        );
-        
-        if (remoteRes.ok) {
-          const remoteData = await remoteRes.json();
-          const remoteContent = decodeURIComponent(escape(atob(remoteData.content)));
-          const remoteSize = new Blob([remoteContent]).size;
+        // Process each section
+        for (const { section, items } of workspaceData.sections) {
+          const path = `${config.dataPath}/${workspace.id}/${section.id}.json`;
+          const localJson = JSON.stringify(items, null, 2);
+          const localSize = new Blob([localJson]).size;
           
-          if (remoteContent !== content) {
-            // Count line changes (rough estimate)
-            const localLines = content.split('\n').length;
-            const remoteLines = remoteContent.split('\n').length;
+          // Try to get remote file
+          const remote = await fetchRemoteFile(path);
+          
+          if (remote) {
+            // Parse remote content (may be encrypted)
+            let remoteItems: SectionItem[] | null;
             
-            remoteChanges.push({
-              file: filename,
-              status: 'modified',
-              additions: Math.max(0, localLines - remoteLines),
-              deletions: Math.max(0, remoteLines - localLines),
+            try {
+              const remoteData = JSON.parse(remote.content);
+              
+              // Check if encrypted
+              if (remoteData.algorithm === 'AES-256-GCM' && encryptionAvailable) {
+                const password = getSessionPassword();
+                if (password) {
+                  remoteItems = await decrypt<SectionItem[]>(remoteData as EncryptedData, password);
+                } else {
+                  remoteItems = null;
+                }
+              } else {
+                remoteItems = remoteData;
+              }
+            } catch {
+              remoteItems = null;
+            }
+            
+            const localItems = items;
+            
+            // Compute diff
+            const diff = computeDiff(localItems, remoteItems);
+            
+            if (diff.itemChanges.length > 0) {
+              changes.push({
+                path,
+                workspaceName: workspace.name,
+                status: 'modified',
+                additions: diff.additions,
+                deletions: diff.deletions,
+                sizeBytes: localSize,
+                itemChanges: diff.itemChanges,
+                selected: true,
+                localSize,
+                remoteSize: new Blob([remote.content]).size,
+                expanded: false,
+              });
+            } else {
+              // No changes
+              changes.push({
+                path,
+                workspaceName: workspace.name,
+                status: 'unchanged',
+                additions: 0,
+                deletions: 0,
+                sizeBytes: localSize,
+                itemChanges: [],
+                selected: false,
+                localSize,
+                remoteSize: new Blob([remote.content]).size,
+              });
+            }
+          } else {
+            // New file
+            const itemChanges: ItemChange[] = items.map(item => ({
+              type: 'added' as const,
+              itemName: (item.data?.name as string) || (item.data?.title as string) || `Item ${item.id.slice(0, 8)}`,
+              itemId: item.id,
+            }));
+            
+            changes.push({
+              path,
+              workspaceName: workspace.name,
+              status: 'added',
+              additions: localJson.split('\n').length,
+              deletions: 0,
+              sizeBytes: localSize,
+              itemChanges,
               selected: true,
               localSize,
-              remoteSize,
-            });
-          } else {
-            remoteChanges.push({
-              file: filename,
-              status: 'unchanged',
-              selected: false,
-              localSize,
-              remoteSize,
+              expanded: false,
             });
           }
-        } else {
-          // File doesn't exist remotely
-          remoteChanges.push({
-            file: filename,
-            status: 'added',
-            additions: content.split('\n').length,
-            selected: true,
-            localSize,
-          });
         }
       }
       
-      setChanges(remoteChanges);
+      // Also check workspaces.json and sections.json
+      const workspacesPath = `${config.dataPath}/workspaces.json`;
+      const sectionsPath = `${config.dataPath}/sections.json`;
       
-      const changedCount = remoteChanges.filter(c => c.status !== 'unchanged').length;
+      const localWorkspaces = JSON.stringify(workspaces, null, 2);
+      const localSections = JSON.stringify(sections, null, 2);
+      
+      const remoteWorkspaces = await fetchRemoteFile(workspacesPath);
+      const remoteSections = await fetchRemoteFile(sectionsPath);
+      
+      // Add workspaces.json change
+      if (!remoteWorkspaces || remoteWorkspaces.content !== localWorkspaces) {
+        changes.unshift({
+          path: workspacesPath,
+          workspaceName: 'System',
+          status: remoteWorkspaces ? 'modified' : 'added',
+          additions: localWorkspaces.split('\n').length,
+          deletions: remoteWorkspaces ? remoteWorkspaces.content.split('\n').length : 0,
+          sizeBytes: new Blob([localWorkspaces]).size,
+          itemChanges: [],
+          selected: true,
+          localSize: new Blob([localWorkspaces]).size,
+          remoteSize: remoteWorkspaces ? new Blob([remoteWorkspaces.content]).size : 0,
+        });
+      }
+      
+      // Add sections.json change
+      if (!remoteSections || remoteSections.content !== localSections) {
+        changes.unshift({
+          path: sectionsPath,
+          workspaceName: 'System',
+          status: remoteSections ? 'modified' : 'added',
+          additions: localSections.split('\n').length,
+          deletions: remoteSections ? remoteSections.content.split('\n').length : 0,
+          sizeBytes: new Blob([localSections]).size,
+          itemChanges: [],
+          selected: true,
+          localSize: new Blob([localSections]).size,
+          remoteSize: remoteSections ? new Blob([remoteSections.content]).size : 0,
+        });
+      }
+      
+      setChanges(changes);
+      
+      const changedCount = changes.filter(c => c.status !== 'unchanged').length;
       if (changedCount > 0) {
         setSyncMessage({ type: 'info', text: `${changedCount} file(s) changed` });
         setShowChanges(true);
@@ -285,6 +531,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         setSyncMessage({ type: 'success', text: 'No changes detected' });
       }
     } catch (err) {
+      console.error('Failed to detect changes:', err);
       setSyncMessage({ type: 'error', text: 'Failed to detect changes' });
     } finally {
       setIsSyncing(false);
@@ -292,9 +539,16 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   };
   
   // Toggle file selection
-  const toggleFileSelection = (file: string) => {
+  const toggleFileSelection = (path: string) => {
     setChanges(prev => prev.map(c => 
-      c.file === file ? { ...c, selected: !c.selected } : c
+      c.path === path ? { ...c, selected: !c.selected } : c
+    ));
+  };
+  
+  // Toggle file expansion
+  const toggleFileExpansion = (path: string) => {
+    setChanges(prev => prev.map(c => 
+      c.path === path ? { ...c, expanded: !c.expanded } : c
     ));
   };
   
@@ -345,39 +599,58 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       const baseTree = commitData.tree.sha;
       
       // Create blobs for each file
-      const treeItems = [];
+      const treeItems: { path: string; mode: string; type: string; sha: string }[] = [];
+      
       for (const change of selectedChanges) {
-        const key = change.file.replace('.json', '');
-        const storageKey = key === 'content-types' ? 'content-types' : 
-                           key === 'workspaces' ? 'workspaces' :
-                           key === 'sections' ? 'sections' :
-                           `pentest_${key}`;
-        const content = localStorage.getItem(storageKey) || localStorage.getItem(key);
+        let content: string;
         
-        if (content) {
-          // Create blob
-          const blobRes = await fetch(
-            `https://api.github.com/repos/${config.owner}/${config.repo}/git/blobs`,
-            {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${config.token}`,
-                'Content-Type': 'application/json',
-                Accept: 'application/vnd.github+json',
-                'X-GitHub-Api-Version': '2022-11-28',
-              },
-              body: JSON.stringify({ content, encoding: 'utf-8' }),
-            }
-          );
-          
-          const blobData = await blobRes.json();
-          treeItems.push({
-            path: `${config.dataPath}/${change.file}`,
-            mode: '100644',
-            type: 'blob',
-            sha: blobData.sha,
-          });
+        // Determine what content to push
+        if (change.path.endsWith('workspaces.json')) {
+          content = localStorage.getItem('pentest-hub-workspaces') || '[]';
+        } else if (change.path.endsWith('sections.json')) {
+          content = localStorage.getItem('pentest-hub-sections') || '[]';
+        } else {
+          // Section data file - extract workspace and section id from path
+          const match = change.path.match(/\/([^/]+)\/([^/]+)\.json$/);
+          if (match) {
+            const sectionId = match[2];
+            content = localStorage.getItem(`section-data-${sectionId}`) || '[]';
+          } else {
+            continue;
+          }
         }
+        
+        // Encrypt if enabled
+        if (encryptionEnabled && encryptionAvailable) {
+          const password = getSessionPassword();
+          if (password) {
+            const encrypted = await encrypt(JSON.parse(content), password);
+            content = JSON.stringify(encrypted, null, 2);
+          }
+        }
+        
+        // Create blob
+        const blobRes = await fetch(
+          `https://api.github.com/repos/${config.owner}/${config.repo}/git/blobs`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${config.token}`,
+              'Content-Type': 'application/json',
+              Accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+            },
+            body: JSON.stringify({ content, encoding: 'utf-8' }),
+          }
+        );
+        
+        const blobData = await blobRes.json();
+        treeItems.push({
+          path: change.path,
+          mode: '100644',
+          type: 'blob',
+          sha: blobData.sha,
+        });
       }
       
       // Create tree
@@ -437,12 +710,18 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       );
       
       if (updateRes.ok) {
-        setSyncMessage({ type: 'success', text: `Pushed ${selectedChanges.length} file(s) successfully!` });
+        const encStatus = encryptionEnabled ? ' (encrypted)' : '';
+        setSyncMessage({ type: 'success', text: `Pushed ${selectedChanges.length} file(s)${encStatus}!` });
         setChanges([]);
         setShowChanges(false);
         
         // Update config
-        const updatedConfig = { ...config, lastSyncSha: newCommitData.sha, lastSyncAt: new Date().toISOString() };
+        const updatedConfig = { 
+          ...config, 
+          lastSyncSha: newCommitData.sha, 
+          lastSyncAt: new Date().toISOString(),
+          encryptionEnabled,
+        };
         saveConfig(updatedConfig);
         setConfig(updatedConfig);
         
@@ -467,31 +746,52 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
     setSyncMessage({ type: 'info', text: 'Pulling changes...' });
     
     try {
-      const files = ['prompts', 'notes', 'snippets', 'resources', 'content-types', 'workspaces', 'sections'];
-      let pulledCount = 0;
+      // Pull workspaces.json
+      const workspacesRemote = await fetchRemoteFile(`${config.dataPath}/workspaces.json`);
+      if (workspacesRemote) {
+        localStorage.setItem('pentest-hub-workspaces', workspacesRemote.content);
+      }
       
-      for (const file of files) {
-        const res = await fetch(
-          `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${config.dataPath}/${file}.json?ref=${config.branch}`,
-          {
-            headers: {
-              Authorization: `Bearer ${config.token}`,
-              Accept: 'application/vnd.github+json',
-              'X-GitHub-Api-Version': '2022-11-28',
-            },
-          }
-        );
+      // Pull sections.json
+      const sectionsRemote = await fetchRemoteFile(`${config.dataPath}/sections.json`);
+      if (sectionsRemote) {
+        localStorage.setItem('pentest-hub-sections', sectionsRemote.content);
+      }
+      
+      // Get all sections and pull their data
+      const sections: Section[] = JSON.parse(localStorage.getItem('pentest-hub-sections') || '[]');
+      const workspaces: Workspace[] = JSON.parse(localStorage.getItem('pentest-hub-workspaces') || '[]');
+      
+      let pulledCount = 2;
+      
+      for (const section of sections) {
+        const path = `${config.dataPath}/${section.workspaceId}/${section.id}.json`;
+        const remote = await fetchRemoteFile(path);
         
-        if (res.ok) {
-          const data = await res.json();
-          const content = decodeURIComponent(escape(atob(data.content)));
+        if (remote) {
+          let content = remote.content;
           
-          // Save to localStorage
-          const key = file === 'content-types' ? 'content-types' : 
-                      file === 'workspaces' ? 'workspaces' :
-                      file === 'sections' ? 'sections' :
-                      `pentest_${file}`;
-          localStorage.setItem(key, content);
+          // Try to decrypt if encrypted
+          try {
+            const data = JSON.parse(content);
+            if (data.algorithm === 'AES-256-GCM') {
+              if (encryptionAvailable) {
+                const password = getSessionPassword();
+                if (password) {
+                  const decrypted = await decrypt(data, password);
+                  content = JSON.stringify(decrypted);
+                }
+              } else {
+                setSyncMessage({ type: 'error', text: 'Data is encrypted. Unlock first.' });
+                setIsSyncing(false);
+                return;
+              }
+            }
+          } catch {
+            // Not encrypted or invalid JSON, use as-is
+          }
+          
+          localStorage.setItem(`section-data-${section.id}`, content);
           pulledCount++;
         }
       }
@@ -510,12 +810,21 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   };
   
   // Get status icon
-  const getStatusIcon = (status: SyncChange['status']) => {
+  const getStatusIcon = (status: FileChange['status']) => {
     switch (status) {
       case 'added': return <Plus className="h-3 w-3 text-emerald-400" />;
       case 'modified': return <Edit3 className="h-3 w-3 text-amber-400" />;
       case 'deleted': return <Minus className="h-3 w-3 text-red-400" />;
       default: return <Check className="h-3 w-3 text-zinc-500" />;
+    }
+  };
+  
+  // Get item change icon
+  const getItemChangeIcon = (type: ItemChange['type']) => {
+    switch (type) {
+      case 'added': return <Plus className="h-3 w-3 text-emerald-400" />;
+      case 'modified': return <Edit3 className="h-3 w-3 text-amber-400" />;
+      case 'deleted': return <Minus className="h-3 w-3 text-red-400" />;
     }
   };
   
@@ -537,6 +846,12 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         
         {config && (
           <div className="flex items-center gap-2">
+            {encryptionEnabled && (
+              <span className="flex items-center gap-1 text-xs text-emerald-400">
+                <Lock className="h-3 w-3" />
+                Encrypted
+              </span>
+            )}
             <a
               href={`https://github.com/${config.owner}/${config.repo}`}
               target="_blank"
@@ -569,6 +884,14 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
            syncMessage.type === 'error' ? <AlertCircle className="h-4 w-4" /> :
            <RefreshCw className={cn("h-4 w-4", isSyncing && "animate-spin")} />}
           {syncMessage.text}
+        </div>
+      )}
+      
+      {/* Encryption Warning */}
+      {encryptionEnabled && !encryptionAvailable && (
+        <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400">
+          <AlertCircle className="h-4 w-4" />
+          Encryption enabled but session is locked. Unlock to sync encrypted data.
         </div>
       )}
       
@@ -648,34 +971,91 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
             </div>
           </button>
           
-          <div className="border-t border-zinc-700 max-h-[200px] overflow-y-auto">
-            {changes.map(change => (
-              <div
-                key={change.file}
-                className={cn(
-                  "flex items-center gap-3 px-4 py-2 hover:bg-zinc-800",
-                  change.status === 'unchanged' && "opacity-50"
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={change.selected}
-                  onChange={() => toggleFileSelection(change.file)}
-                  disabled={change.status === 'unchanged'}
-                  className="rounded border-zinc-600 text-emerald-500 focus:ring-emerald-500"
-                />
-                {getStatusIcon(change.status)}
-                <FileText className="h-4 w-4 text-zinc-500" />
-                <span className="flex-1 text-sm text-zinc-300">{change.file}</span>
-                {change.status !== 'unchanged' && (
-                  <span className="text-xs text-zinc-500">
-                    {change.status === 'added' ? `+${change.additions}` : 
-                     `+${change.additions} -${change.deletions}`}
-                  </span>
-                )}
-                <span className="text-xs text-zinc-600">
-                  {formatSize(change.localSize || 0)}
-                </span>
+          <div className="border-t border-zinc-700 max-h-[400px] overflow-y-auto">
+            {/* Group by workspace */}
+            {Array.from(new Set(changes.map(c => c.workspaceName))).map(workspaceName => (
+              <div key={workspaceName}>
+                {/* Workspace header */}
+                <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900/50 text-xs text-zinc-400 font-medium">
+                  <Folder className="h-3 w-3" />
+                  {workspaceName}
+                </div>
+                
+                {/* Files in workspace */}
+                {changes
+                  .filter(c => c.workspaceName === workspaceName)
+                  .map(change => (
+                    <div key={change.path}>
+                      {/* File row */}
+                      <div
+                        className={cn(
+                          "flex items-center gap-3 px-4 py-2 hover:bg-zinc-800 cursor-pointer",
+                          change.status === 'unchanged' && "opacity-50"
+                        )}
+                        onClick={() => change.itemChanges.length > 0 && toggleFileExpansion(change.path)}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={change.selected}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            toggleFileSelection(change.path);
+                          }}
+                          disabled={change.status === 'unchanged'}
+                          className="rounded border-zinc-600 text-emerald-500 focus:ring-emerald-500"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        {getStatusIcon(change.status)}
+                        <FileText className="h-4 w-4 text-zinc-500" />
+                        <span className="flex-1 text-sm text-zinc-300">
+                          {change.path.split('/').pop()}
+                        </span>
+                        {change.status !== 'unchanged' && (
+                          <span className="text-xs text-zinc-500 font-mono">
+                            +{change.additions} -{change.deletions}
+                          </span>
+                        )}
+                        <span className="text-xs text-zinc-600">
+                          {formatSize(change.localSize || 0)}
+                        </span>
+                        {change.itemChanges.length > 0 && (
+                          <div className="flex items-center gap-1 text-zinc-500">
+                            <span className="text-xs">({change.itemChanges.length} items)</span>
+                            {change.expanded ? 
+                              <ChevronDown className="h-4 w-4" /> : 
+                              <ChevronRight className="h-4 w-4" />
+                            }
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Item changes (expanded view) */}
+                      {change.expanded && change.itemChanges.length > 0 && (
+                        <div className="pl-12 pr-4 py-1 bg-zinc-900/30 space-y-1">
+                          {change.itemChanges.slice(0, 20).map((itemChange, idx) => (
+                            <div key={idx} className="flex items-center gap-2 text-xs">
+                              {getItemChangeIcon(itemChange.type)}
+                              <span className={cn(
+                                itemChange.type === 'added' ? 'text-emerald-300' :
+                                itemChange.type === 'modified' ? 'text-amber-300' :
+                                'text-red-300'
+                              )}>
+                                {itemChange.itemName}
+                              </span>
+                              {itemChange.field && (
+                                <span className="text-zinc-500">({itemChange.field})</span>
+                              )}
+                            </div>
+                          ))}
+                          {change.itemChanges.length > 20 && (
+                            <div className="text-xs text-zinc-500 pl-5">
+                              ... and {change.itemChanges.length - 20} more
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
               </div>
             ))}
           </div>
@@ -787,7 +1167,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
                 </div>
               )}
               
-              {/* Branch */}
+              {/* Branch & Path */}
               {selectedRepo && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -810,6 +1190,31 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
                       className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     />
                   </div>
+                </div>
+              )}
+              
+              {/* Encryption toggle */}
+              {selectedRepo && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-zinc-800/50">
+                  <input
+                    type="checkbox"
+                    id="encryption"
+                    checked={encryptionEnabled}
+                    onChange={(e) => setEncryptionEnabled(e.target.checked)}
+                    className="rounded border-zinc-600 text-emerald-500 focus:ring-emerald-500"
+                    disabled={!encryptionAvailable && !isEncryptionSetUp()}
+                  />
+                  <div className="flex-1">
+                    <label htmlFor="encryption" className="text-sm font-medium text-zinc-300 cursor-pointer">
+                      Encrypt data before sync
+                    </label>
+                    <p className="text-xs text-zinc-500">
+                      {isEncryptionSetUp() ? 
+                        'AES-256 encryption enabled' : 
+                        'Setup encryption in Settings first'}
+                    </p>
+                  </div>
+                  {encryptionEnabled && <Lock className="h-4 w-4 text-emerald-400" />}
                 </div>
               )}
               

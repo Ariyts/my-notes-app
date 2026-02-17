@@ -5,7 +5,15 @@ import { ContentTypesManager } from './pages/ContentTypes';
 import { SectionPage } from './pages/SectionPage';
 import { DataProvider } from './lib/DataContext';
 import { WorkspaceProvider } from './lib/WorkspaceContext';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { LockScreen } from './components/security/LockScreen';
+import { SetupPassword } from './components/security/SetupPassword';
+import { 
+  isEncryptionSetUp, 
+  isSessionActive, 
+  loadEncryptedVault,
+  clearSession,
+} from './lib/crypto';
 
 // Legacy route redirector - redirects old routes to new section routes
 function LegacyRedirect() {
@@ -13,7 +21,13 @@ function LegacyRedirect() {
   return <Navigate to={`/section/${typeId}`} replace />;
 }
 
+type AppStatus = 'loading' | 'setup' | 'locked' | 'unlocked';
+
 export function App() {
+  const [status, setStatus] = useState<AppStatus>('loading');
+  const [showSetup, setShowSetup] = useState(false);
+  const [encryptionEnabled, setEncryptionEnabled] = useState(isEncryptionSetUp());
+  
   useEffect(() => {
     // Register for PWA install prompt
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -21,14 +35,93 @@ export function App() {
       // Store the event for later use
       (window as any).deferredPrompt = e;
     });
+    
+    // Check encryption status
+    const checkStatus = () => {
+      const encryptionSetup = isEncryptionSetUp();
+      const sessionActive = isSessionActive();
+      const hasVault = loadEncryptedVault() !== null;
+      
+      setEncryptionEnabled(encryptionSetup);
+      
+      if (encryptionSetup && hasVault) {
+        // Encryption is set up
+        if (sessionActive) {
+          setStatus('unlocked');
+        } else {
+          setStatus('locked');
+        }
+      } else {
+        // Encryption not set up
+        setStatus('unlocked'); // Allow app usage without encryption
+      }
+    };
+    
+    checkStatus();
+    
+    // Listen for storage changes (for multi-tab sync)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'pentest-hub-encryption-setup') {
+        checkStatus();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
-
+  
+  const handleUnlock = () => {
+    setStatus('unlocked');
+  };
+  
+  const handleSetupComplete = () => {
+    setShowSetup(false);
+    setStatus('unlocked');
+  };
+  
+  const handleSetupSkip = () => {
+    setShowSetup(false);
+  };
+  
+  const handleLock = () => {
+    clearSession();
+    setStatus('locked');
+  };
+  
+  // Loading state
+  if (status === 'loading') {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-zinc-900">
+        <div className="text-zinc-400">Loading...</div>
+      </div>
+    );
+  }
+  
+  // Setup password (shown when explicitly requested)
+  if (showSetup) {
+    return (
+      <SetupPassword 
+        onComplete={handleSetupComplete} 
+        onSkip={handleSetupSkip}
+      />
+    );
+  }
+  
+  // Lock screen (shown when encryption is set up but session is locked)
+  if (status === 'locked') {
+    return <LockScreen onUnlock={handleUnlock} />;
+  }
+  
+  // Unlocked - show main app
   return (
     <DataProvider>
       <WorkspaceProvider>
         <HashRouter>
           <Routes>
-            <Route path="/" element={<Layout />}>
+            <Route path="/" element={<Layout onLock={encryptionEnabled ? handleLock : undefined} />}>
               {/* New universal section route */}
               <Route path="section/:sectionId" element={<SectionPage />} />
               
