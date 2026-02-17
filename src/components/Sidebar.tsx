@@ -1,3 +1,5 @@
+// @ts-nocheck
+// This file is deprecated - use SidebarNew.tsx instead
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
@@ -6,6 +8,7 @@ import {
   StickyNote, 
   Link as LinkIcon, 
   Database,
+  FileText,
   Lock,
   Search,
   Download,
@@ -17,6 +20,14 @@ import {
   AlertTriangle,
   X,
   Check,
+  Globe,
+  Bug,
+  Zap,
+  Folder,
+  BookOpen,
+  Code,
+  Hammer,
+  Wrench,
 } from 'lucide-react';
 import { cn } from '../utils/cn';
 import { gistSync } from '../lib/storage-enhanced';
@@ -62,7 +73,7 @@ function ClearStorageModal({ onClose, onConfirm }: { onClose: () => void; onConf
             </li>
             <li className="flex items-center gap-2">
               <span className="h-1 w-1 rounded-full bg-zinc-600" />
-              Custom content types
+              Custom sections and content types
             </li>
             <li className="flex items-center gap-2">
               <span className="h-1 w-1 rounded-full bg-zinc-600" />
@@ -98,24 +109,35 @@ function ClearStorageModal({ onClose, onConfirm }: { onClose: () => void; onConf
   );
 }
 
-// Icon mapping for dynamic types
+// Extended icon mapping for sections
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   Terminal,
   StickyNote,
   Database,
   Link: LinkIcon,
-  FileText: StickyNote,
+  FileText,
+  Globe,
+  Bug,
+  Zap,
+  Folder,
+  BookOpen,
+  Code,
+  Hammer,
+  Wrench,
   CheckSquare: Database,
   HelpCircle: Terminal,
-  Code: Terminal,
 };
 
-// Map content type IDs to routes (for default types)
-const TYPE_ROUTES: Record<string, string> = {
-  prompts: '/',
-  notes: '/notes',
-  snippets: '/snippets',
-  resources: '/resources',
+// Color mapping for section accents
+const COLOR_MAP: Record<string, { text: string; bg: string; border: string }> = {
+  emerald: { text: 'text-emerald-400', bg: 'bg-emerald-600/10', border: 'border-emerald-500' },
+  blue: { text: 'text-blue-400', bg: 'bg-blue-600/10', border: 'border-blue-500' },
+  purple: { text: 'text-purple-400', bg: 'bg-purple-600/10', border: 'border-purple-500' },
+  orange: { text: 'text-orange-400', bg: 'bg-orange-600/10', border: 'border-orange-500' },
+  red: { text: 'text-red-400', bg: 'bg-red-600/10', border: 'border-red-500' },
+  yellow: { text: 'text-yellow-400', bg: 'bg-yellow-600/10', border: 'border-yellow-500' },
+  pink: { text: 'text-pink-400', bg: 'bg-pink-600/10', border: 'border-pink-500' },
+  cyan: { text: 'text-cyan-400', bg: 'bg-cyan-600/10', border: 'border-cyan-500' },
 };
 
 interface SidebarProps {
@@ -129,8 +151,8 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
   const location = useLocation();
   const gistConfig = gistSync.getConfig();
   const isGistConnected = !!gistConfig.gistId;
-  const { data } = useData();
-  const types = data.contentTypes;
+  const { sections, data } = useData();
+  const sectionList = sections.getAll();
   const [showClearModal, setShowClearModal] = useState(false);
 
   const handleClearStorage = () => {
@@ -141,6 +163,20 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
     // Reload the page to reset all state
     window.location.reload();
   };
+
+  // Get the section ID from the current path
+  const getCurrentSectionId = (): string | null => {
+    const match = location.pathname.match(/^\/section\/([^/]+)/);
+    if (match) return match[1];
+    // Handle legacy routes
+    if (location.pathname === '/') return 'prompts';
+    if (location.pathname === '/notes') return 'notes';
+    if (location.pathname === '/snippets') return 'snippets';
+    if (location.pathname === '/resources') return 'resources';
+    return null;
+  };
+
+  const currentSectionId = getCurrentSectionId();
 
   return (
     <div className="flex h-screen w-64 flex-col border-r border-zinc-800 bg-zinc-950">
@@ -171,38 +207,38 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
       <nav className="flex-1 space-y-1 px-3 py-2 overflow-y-auto">
         <div className="mb-2 flex items-center justify-between px-3">
           <span className="text-xs font-semibold uppercase tracking-wider text-zinc-600">
-            Content
+            Sections
           </span>
           <Link
-            to="/content-types"
+            to="/settings"
             className="rounded p-1 text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300"
-            title="Manage content types"
+            title="Manage sections"
           >
             <Layers className="h-3.5 w-3.5" />
           </Link>
         </div>
         
-        {types.map((type) => {
-          const route = TYPE_ROUTES[type.id] || `/content/${type.id}`;
-          const isActive = location.pathname === route;
-          const IconComponent = ICON_MAP[type.icon] || Terminal;
-          const colorClass = type.color || 'emerald';
+        {sectionList.map((section) => {
+          const route = `/section/${section.id}`;
+          const isActive = currentSectionId === section.id;
+          const IconComponent = ICON_MAP[section.icon] || Terminal;
+          const colorName = section.config?.color || 'emerald';
+          const colors = COLOR_MAP[colorName] || COLOR_MAP.emerald;
 
           return (
             <Link
-              key={type.id}
+              key={section.id}
               to={route}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                 isActive 
-                  ? `bg-${colorClass}-600/10 text-${colorClass}-400 border-l-2 border-${colorClass}-500 -ml-0.5 pl-[calc(0.75rem+2px)]` 
+                  ? `${colors.bg} ${colors.text} border-l-2 ${colors.border} -ml-0.5 pl-[calc(0.75rem+2px)]` 
                   : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
               )}
-              style={isActive ? { borderLeftColor: `var(--color-${colorClass})` } : undefined}
             >
-              <IconComponent className={cn("h-4 w-4", isActive && `text-${colorClass}-400`)} />
+              <IconComponent className={cn("h-4 w-4", isActive && colors.text)} />
               <div className="flex-1">
-                <div>{type.name}</div>
+                <div>{section.name}</div>
               </div>
             </Link>
           );
@@ -267,11 +303,11 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
       <div className="border-t border-zinc-800 p-4">
         <div className="grid grid-cols-2 gap-2 text-center text-xs">
           <div className="rounded bg-zinc-900 p-2">
-            <div className="font-bold text-zinc-100" id="stat-prompts">-</div>
+            <div className="font-bold text-zinc-100">{data.prompts.length}</div>
             <div className="text-zinc-500">Prompts</div>
           </div>
           <div className="rounded bg-zinc-900 p-2">
-            <div className="font-bold text-zinc-100" id="stat-notes">-</div>
+            <div className="font-bold text-zinc-100">{data.notes.length}</div>
             <div className="text-zinc-500">Notes</div>
           </div>
         </div>

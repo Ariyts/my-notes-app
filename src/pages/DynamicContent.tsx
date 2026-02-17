@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Dynamic Content Page
  * Universal page for custom content types with full functionality

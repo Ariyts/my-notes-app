@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
-import { Sidebar } from './Sidebar';
+import { Sidebar } from './SidebarNew';
 import { MobileNav } from './MobileNav';
 import { GlobalSearch } from './GlobalSearch';
 import { ExportImport } from './ExportImport';
 import { GistSync } from './GistSync';
 import { ExportPanel } from './ExportPanel';
-import { useData } from '../lib/DataContext';
+import { useSections } from '../lib/SectionsContext';
 
 export function Layout() {
-  const { data } = useData();
+  const { sections, getSectionData } = useSections();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isGistOpen, setIsGistOpen] = useState(false);
@@ -35,14 +35,6 @@ export function Layout() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  // Update stats in sidebar
-  useEffect(() => {
-    const promptsEl = document.getElementById('stat-prompts');
-    const notesEl = document.getElementById('stat-notes');
-    if (promptsEl) promptsEl.textContent = String(data.prompts.length);
-    if (notesEl) notesEl.textContent = String(data.notes.length);
-  }, [data.prompts.length, data.notes.length]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 lg:flex-row">

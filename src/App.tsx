@@ -1,14 +1,17 @@
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { Layout } from './components/Layout';
-import { Prompts } from './pages/Prompts';
-import { Notes } from './pages/Notes';
-import { Snippets } from './pages/Snippets';
-import { Resources } from './pages/Resources';
 import { Settings } from './pages/Settings';
 import { ContentTypesManager } from './pages/ContentTypes';
-import { DynamicContent } from './pages/DynamicContent';
+import { SectionPage } from './pages/SectionPage';
 import { DataProvider } from './lib/DataContext';
+import { SectionsProvider } from './lib/SectionsContext';
 import { useEffect } from 'react';
+
+// Legacy route redirector - redirects old routes to new section routes
+function LegacyRedirect() {
+  const { typeId } = useParams<{ typeId: string }>();
+  return <Navigate to={`/section/${typeId}`} replace />;
+}
 
 export function App() {
   useEffect(() => {
@@ -22,20 +25,34 @@ export function App() {
 
   return (
     <DataProvider>
-      <HashRouter>
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Prompts />} />
-            <Route path="notes" element={<Notes />} />
-            <Route path="snippets" element={<Snippets />} />
-            <Route path="resources" element={<Resources />} />
-            <Route path="content-types" element={<ContentTypesManager />} />
-            <Route path="content/:typeId" element={<DynamicContent />} />
-            <Route path="settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </HashRouter>
+      <SectionsProvider>
+        <HashRouter>
+          <Routes>
+            <Route path="/" element={<Layout />}>
+              {/* New universal section route */}
+              <Route path="section/:sectionId" element={<SectionPage />} />
+              
+              {/* Legacy routes - redirect to new section routes */}
+              <Route index element={<Navigate to="/section/prompts" replace />} />
+              <Route path="notes" element={<Navigate to="/section/notes" replace />} />
+              <Route path="snippets" element={<Navigate to="/section/snippets" replace />} />
+              <Route path="resources" element={<Navigate to="/section/resources" replace />} />
+              
+              {/* Content types manager */}
+              <Route path="content-types" element={<ContentTypesManager />} />
+              
+              {/* Legacy content route - redirect to section route */}
+              <Route path="content/:typeId" element={<LegacyRedirect />} />
+              
+              {/* Settings */}
+              <Route path="settings" element={<Settings />} />
+              
+              {/* Catch-all redirect */}
+              <Route path="*" element={<Navigate to="/section/prompts" replace />} />
+            </Route>
+          </Routes>
+        </HashRouter>
+      </SectionsProvider>
     </DataProvider>
   );
 }
