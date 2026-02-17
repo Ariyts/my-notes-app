@@ -824,6 +824,9 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       // Get current sync version
       let currentVersion = parseInt(localStorage.getItem(SYNC_VERSION_KEY) || '0', 10);
       
+      // Increment version for this push
+      currentVersion++;
+      
       for (const change of selectedChanges) {
         let content: string;
         
@@ -876,6 +879,34 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
           sha: blobData.sha,
         });
       }
+      
+      // Create metadata.json for version tracking
+      const metadataContent = JSON.stringify({
+        version: currentVersion,
+        lastModified: new Date().toISOString(),
+      }, null, 2);
+      
+      const metadataBlobRes = await fetch(
+        `https://api.github.com/repos/${config.owner}/${config.repo}/git/blobs`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${config.token}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+          body: JSON.stringify({ content: metadataContent, encoding: 'utf-8' }),
+        }
+      );
+      
+      const metadataBlobData = await metadataBlobRes.json();
+      treeItems.push({
+        path: `${config.dataPath}/${METADATA_FILE}`,
+        mode: '100644',
+        type: 'blob',
+        sha: metadataBlobData.sha,
+      });
       
       // Create tree
       const treeRes = await fetch(
