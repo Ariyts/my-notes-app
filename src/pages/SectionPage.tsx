@@ -6,7 +6,7 @@
  */
 
 import { useParams, Navigate } from 'react-router-dom';
-import { useSection } from '../lib/SectionsContext';
+import { useSection, useSections } from '../lib/SectionsContext';
 import { ContentRenderer } from '../components/content-types/ContentRenderer';
 import { Terminal, FileText, Database, Link, Table } from 'lucide-react';
 
@@ -22,10 +22,16 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
 export function SectionPage() {
   const { sectionId } = useParams<{ sectionId: string }>();
   const { section, items, setItems } = useSection(sectionId || '');
+  const { sections } = useSections();
 
-  // If section doesn't exist, redirect to first section
+  // If section doesn't exist, redirect to first available section
   if (!section) {
-    return <Navigate to="/section/prompts" replace />;
+    const firstSection = sections[0];
+    if (firstSection) {
+      return <Navigate to={`/section/${firstSection.id}`} replace />;
+    }
+    // Fallback if no sections exist
+    return <SectionNotFound sectionId={sectionId || ''} />;
   }
 
   return (
