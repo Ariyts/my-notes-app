@@ -17,7 +17,6 @@ import {
   Search,
   Download,
   Settings,
-  Cloud,
   FileDown,
   Trash2,
   AlertTriangle,
@@ -32,7 +31,6 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '../utils/cn';
-import { gistSync } from '../lib/storage-enhanced';
 import { useWorkspaces } from '../lib/WorkspaceContext';
 import { ContentTypeId } from '../types/sections';
 import { EditSectionModal } from './sections/EditSectionModal';
@@ -225,14 +223,11 @@ function AddSectionModal({
 interface SidebarProps {
   onOpenSearch: () => void;
   onOpenExport: () => void;
-  onOpenGist: () => void;
   onOpenExportPanel: () => void;
 }
 
-export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPanel }: SidebarProps) {
+export function Sidebar({ onOpenSearch, onOpenExport, onOpenExportPanel }: SidebarProps) {
   const location = useLocation();
-  const gistConfig = gistSync.getConfig();
-  const isGistConnected = !!gistConfig.gistId;
   
   // Use workspace context
   const { 
@@ -395,21 +390,6 @@ export function Sidebar({ onOpenSearch, onOpenExport, onOpenGist, onOpenExportPa
         >
           <Trash2 className="h-4 w-4" />
           <span>Clear Data</span>
-        </button>
-        <button 
-          onClick={onOpenGist}
-          className={cn(
-            "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-            isGistConnected 
-              ? "text-blue-400 hover:bg-blue-500/10" 
-              : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
-          )}
-        >
-          <Cloud className={cn("h-4 w-4", isGistConnected && "text-blue-400")} />
-          <span>Gist Sync</span>
-          {isGistConnected && (
-            <span className="ml-auto h-2 w-2 rounded-full bg-emerald-500" title="Connected" />
-          )}
         </button>
         <button 
           onClick={onOpenExportPanel}

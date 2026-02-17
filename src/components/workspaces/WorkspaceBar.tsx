@@ -5,7 +5,8 @@
  * Shows tabs for each workspace with add button.
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, ChevronDown, Edit2, Trash2, Copy, Check, X } from 'lucide-react';
 import { useWorkspaces, WORKSPACE_COLORS } from '../../lib/WorkspaceContext';
 import { cn } from '../../utils/cn';
@@ -13,9 +14,11 @@ import { CreateWorkspaceModal } from './CreateWorkspaceModal';
 import { WorkspaceMenu } from './WorkspaceMenu';
 
 export function WorkspaceBar() {
+  const navigate = useNavigate();
   const { 
     workspaces, 
     activeWorkspaceId, 
+    sections,
     setActiveWorkspaceId,
     updateWorkspace,
     deleteWorkspace,
@@ -26,6 +29,7 @@ export function WorkspaceBar() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [menuWorkspaceId, setMenuWorkspaceId] = useState<string | null>(null);
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
   
   const handleStartEdit = (id: string, name: string) => {
     setEditingId(id);
@@ -59,6 +63,20 @@ export function WorkspaceBar() {
       duplicateWorkspace(id, `${workspace.name} (copy)`);
     }
     setMenuWorkspaceId(null);
+  };
+  
+  // Handle workspace switch with navigation
+  const handleWorkspaceSwitch = (workspaceId: string) => {
+    setActiveWorkspaceId(workspaceId);
+    
+    // Navigate to first section of new workspace
+    const workspaceSections = sections.filter(s => s.workspaceId === workspaceId);
+    if (workspaceSections.length > 0) {
+      navigate(`/section/${workspaceSections[0].id}`);
+    } else {
+      // No sections - show empty state by navigating to a special route or staying
+      navigate('/');
+    }
   };
   
   return (
@@ -105,7 +123,7 @@ export function WorkspaceBar() {
               ) : (
                 // Normal mode
                 <button
-                  onClick={() => setActiveWorkspaceId(workspace.id)}
+                  onClick={() => handleWorkspaceSwitch(workspace.id)}
                   className={cn(
                     "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all group",
                     isActive 
@@ -131,6 +149,7 @@ export function WorkspaceBar() {
                   {/* Dropdown arrow for active */}
                   {isActive && (
                     <button
+                      ref={menuAnchorRef}
                       onClick={(e) => {
                         e.stopPropagation();
                         setMenuWorkspaceId(showMenu ? null : workspace.id);
@@ -146,10 +165,11 @@ export function WorkspaceBar() {
                 </button>
               )}
               
-              {/* Dropdown menu */}
+              {/* Dropdown menu via portal */}
               {showMenu && (
                 <WorkspaceMenu
                   workspace={workspace}
+                  anchorEl={menuAnchorRef.current}
                   onRename={() => handleStartEdit(workspace.id, workspace.name)}
                   onDelete={() => handleDelete(workspace.id)}
                   onDuplicate={() => handleDuplicate(workspace.id)}

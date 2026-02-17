@@ -13,7 +13,6 @@ const STORAGE_KEYS = {
   SNIPPETS: 'pentest_snippets',
   RESOURCES: 'pentest_resources',
   HISTORY: 'pentest_history',
-  GIST_CONFIG: 'pentest_gist_config',
   PROMPT_ORDER: 'pentest_prompt_order',
   SNIPPET_ORDER: 'pentest_snippet_order',
   DATA_VERSION: 'pentest_data_version',
@@ -28,13 +27,6 @@ export interface HistoryEntry {
   content: string;
   title: string;
   timestamp: string;
-}
-
-export interface GistConfig {
-  token: string;
-  gistId: string | null;
-  lastSync: string | null;
-  autoSync: boolean;
 }
 
 function getCollection<T>(key: string): T[] {
@@ -115,176 +107,6 @@ export const history = {
         (e) => e.itemId !== itemId
       )
     );
-  },
-};
-
-export const gistSync = {
-  getConfig: (): GistConfig => {
-    const data = localStorage.getItem(STORAGE_KEYS.GIST_CONFIG);
-    return data
-      ? JSON.parse(data)
-      : { token: '', gistId: null, lastSync: null, autoSync: false };
-  },
-  saveConfig: (config: GistConfig) => {
-    localStorage.setItem(STORAGE_KEYS.GIST_CONFIG, JSON.stringify(config));
-  },
-  encryptForGist: (data: unknown, _password: string): string => {
-    const json = JSON.stringify(data);
-    return btoa(unescape(encodeURIComponent(json)));
-  },
-  decryptFromGist: (encrypted: string, _password: string): unknown => {
-    try {
-      const json = decodeURIComponent(escape(atob(encrypted)));
-      return JSON.parse(json);
-    } catch {
-      throw new Error('Failed to decrypt data');
-    }
-  },
-  push: async (
-    password: string
-  ): Promise<{ success: boolean; error?: string; gistId?: string }> => {
-    const config = gistSync.getConfig();
-    if (!config.token) return { success: false, error: 'No GitHub token configured' };
-
-    const allData = {
-      version: '1.0',
-      exportedAt: new Date().toISOString(),
-      prompts: getCollection<Prompt>(STORAGE_KEYS.PROMPTS),
-      notes: getCollection<Note>(STORAGE_KEYS.NOTES),
-      snippets: getCollection<Snippet>(STORAGE_KEYS.SNIPPETS),
-      resources: getCollection<Resource>(STORAGE_KEYS.RESOURCES),
-    };
-    const encrypted = gistSync.encryptForGist(allData, password);
-    const gistPayload = {
-      description: 'Pentest Hub Encrypted Backup',
-      public: false,
-      files: { 'pentest-hub-data.enc': { content: encrypted } },
-    };
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-    try {
-      const url = config.gistId
-        ? `https://api.github.com/gists/${config.gistId}`
-        : 'https://api.github.com/gists';
-      const method = config.gistId ? 'PATCH' : 'POST';
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          Authorization: `Bearer ${config.token}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-        body: JSON.stringify(gistPayload),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const error = await response.json();
-        return {
-          success: false,
-          error: `GitHub API Error: ${error.message || 'Unknown error'}`,
-        };
-      }
-
-      const gist = await response.json();
-      gistSync.saveConfig({
-        ...config,
-        gistId: gist.id,
-        lastSync: new Date().toISOString(),
-      });
-      return { success: true, gistId: gist.id };
-    } catch (err: unknown) {
-      clearTimeout(timeoutId);
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      if (errorMessage === 'AbortError') {
-        return {
-          success: false,
-          error: 'Request timed out (20s). Please check your network connection.',
-        };
-      }
-      return {
-        success: false,
-        error: `Network error: ${errorMessage || 'Failed to connect to GitHub'}`,
-      };
-    }
-  },
-  pull: async (
-    password: string
-  ): Promise<{ success: boolean; error?: string; data?: unknown }> => {
-    const config = gistSync.getConfig();
-    if (!config.token || !config.gistId)
-      return { success: false, error: 'No Gist configured. Push data first.' };
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-    try {
-      const response = await fetch(
-        `https://api.github.com/gists/${config.gistId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${config.token}`,
-            Accept: 'application/vnd.github+json',
-            'X-GitHub-Api-Version': '2022-11-28',
-          },
-          signal: controller.signal,
-        }
-      );
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const error = await response.json();
-        return {
-          success: false,
-          error: `GitHub API Error: ${error.message || 'Failed to fetch Gist'}`,
-        };
-      }
-
-      const gist = await response.json();
-      const encryptedContent = gist.files['pentest-hub-data.enc']?.content;
-      if (!encryptedContent)
-        return {
-          success: false,
-          error: 'Invalid Gist format: file not found.',
-        };
-
-      const data = gistSync.decryptFromGist(encryptedContent, password);
-      return { success: true, data };
-    } catch (err: unknown) {
-      clearTimeout(timeoutId);
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      if (errorMessage === 'AbortError') {
-        return {
-          success: false,
-          error: 'Request timed out (20s). Please check your network connection.',
-        };
-      }
-      return {
-        success: false,
-        error: `Network error: ${errorMessage || 'Failed to pull data'}`,
-      };
-    }
-  },
-  applyPulledData: (data: { prompts?: unknown; notes?: unknown; snippets?: unknown; resources?: unknown }) => {
-    if (data.prompts)
-      localStorage.setItem(STORAGE_KEYS.PROMPTS, JSON.stringify(data.prompts));
-    if (data.notes)
-      localStorage.setItem(STORAGE_KEYS.NOTES, JSON.stringify(data.notes));
-    if (data.snippets)
-      localStorage.setItem(STORAGE_KEYS.SNIPPETS, JSON.stringify(data.snippets));
-    if (data.resources)
-      localStorage.setItem(STORAGE_KEYS.RESOURCES, JSON.stringify(data.resources));
-    gistSync.saveConfig({
-      ...gistSync.getConfig(),
-      lastSync: new Date().toISOString(),
-    });
   },
 };
 
@@ -436,7 +258,6 @@ export const storageEnhanced = {
     },
   },
   history,
-  gistSync,
   ordering,
   clearAll: () => {
     Object.values(STORAGE_KEYS).forEach((key) => localStorage.removeItem(key));

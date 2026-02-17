@@ -5,6 +5,7 @@
  */
 
 import { useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Edit2, Trash2, Copy, Palette } from 'lucide-react';
 import { Workspace } from '../../types/sections';
 import { WORKSPACE_COLORS } from '../../lib/WorkspaceContext';
@@ -12,6 +13,7 @@ import { cn } from '../../utils/cn';
 
 interface WorkspaceMenuProps {
   workspace: Workspace;
+  anchorEl: HTMLElement | null;
   onRename: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
@@ -21,6 +23,7 @@ interface WorkspaceMenuProps {
 
 export function WorkspaceMenu({
   workspace,
+  anchorEl,
   onRename,
   onDelete,
   onDuplicate,
@@ -29,22 +32,50 @@ export function WorkspaceMenu({
 }: WorkspaceMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   
+  // Position menu relative to anchor
+  const position = anchorEl ? {
+    top: anchorEl.getBoundingClientRect().bottom + 4,
+    left: anchorEl.getBoundingClientRect().left,
+  } : { top: 0, left: 0 };
+  
   // Close on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node) &&
+          anchorEl && !anchorEl.contains(e.target as Node)) {
         onClose();
       }
     };
     
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [onClose, anchorEl]);
+  
+  // Close on scroll
+  useEffect(() => {
+    const handleScroll = () => onClose();
+    window.addEventListener('scroll', handleScroll, true);
+    return () => window.removeEventListener('scroll', handleScroll, true);
   }, [onClose]);
   
-  return (
+  if (!anchorEl) return null;
+  
+  const menuContent = (
     <div
       ref={menuRef}
-      className="absolute top-full left-0 mt-1 w-48 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl z-50 overflow-hidden"
+      className="fixed w-48 rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl z-[100] overflow-hidden"
+      style={{
+        top: `${position.top}px`,
+        left: `${Math.min(position.left, window.innerWidth - 200)}px`,
+      }}
     >
       {/* Rename */}
       <button
@@ -105,4 +136,7 @@ export function WorkspaceMenu({
       )}
     </div>
   );
+  
+  // Render in portal to escape overflow constraints
+  return createPortal(menuContent, document.body);
 }

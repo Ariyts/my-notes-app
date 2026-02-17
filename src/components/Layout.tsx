@@ -4,14 +4,12 @@ import { Sidebar } from './SidebarNew';
 import { MobileNav } from './MobileNav';
 import { GlobalSearch } from './GlobalSearch';
 import { ExportImport } from './ExportImport';
-import { GistSync } from './GistSync';
 import { ExportPanel } from './ExportPanel';
 import { WorkspaceBar } from './workspaces/WorkspaceBar';
 
 export function Layout() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
-  const [isGistOpen, setIsGistOpen] = useState(false);
   const [isExportPanelOpen, setIsExportPanelOpen] = useState(false);
 
   // Global keyboard shortcuts
@@ -26,7 +24,6 @@ export function Layout() {
       if (e.key === 'Escape') {
         setIsSearchOpen(false);
         setIsExportOpen(false);
-        setIsGistOpen(false);
         setIsExportPanelOpen(false);
       }
     };
@@ -42,7 +39,6 @@ export function Layout() {
         <Sidebar 
           onOpenSearch={() => setIsSearchOpen(true)} 
           onOpenExport={() => setIsExportOpen(true)}
-          onOpenGist={() => setIsGistOpen(true)}
           onOpenExportPanel={() => setIsExportPanelOpen(true)}
         />
       </div>
@@ -68,7 +64,6 @@ export function Layout() {
       {/* Global Modals */}
       <GlobalSearch isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
       <ExportImport isOpen={isExportOpen} onClose={() => setIsExportOpen(false)} />
-      <GistSync isOpen={isGistOpen} onClose={() => setIsGistOpen(false)} />
       <ExportPanel isOpen={isExportPanelOpen} onClose={() => setIsExportPanelOpen(false)} />
     </div>
   );
