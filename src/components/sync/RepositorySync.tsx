@@ -1071,9 +1071,11 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       
       setSyncMessage({ type: 'success', text: `Pulled ${pulledCount} file(s). Refreshing...` });
       
+      // Dispatch event to reload WorkspaceContext without page refresh
       setTimeout(() => {
-        window.location.reload();
-      }, 1500);
+        window.dispatchEvent(new CustomEvent('workspace-reload'));
+        setSyncMessage({ type: 'success', text: `Pulled ${pulledCount} file(s). Data updated.` });
+      }, 500);
       
     } catch (err) {
       setSyncMessage({ type: 'error', text: 'Failed to pull changes' });

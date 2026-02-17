@@ -65,6 +65,9 @@ interface WorkspaceContextValue {
   // Export/Import
   exportAll: () => { workspaces: Workspace[]; sections: Section[]; items: Record<string, SectionItem[]> };
   importAll: (data: { workspaces: Workspace[]; sections: Section[]; items: Record<string, SectionItem[]> }) => void;
+  
+  // Reload from localStorage (after sync)
+  reloadFromStorage: () => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -300,6 +303,44 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
   
+    // Reload all data from localStorage (after sync)
+  const reloadFromStorage = useCallback(() => {
+    const savedWorkspaces = loadFromStorage<Workspace[]>(WORKSPACES_KEY, []);
+    const savedSections = loadFromStorage<Section[]>(SECTIONS_KEY, []);
+    const savedActiveId = loadFromStorage<string>(ACTIVE_WORKSPACE_KEY, 'default');
+    
+    if (savedWorkspaces.length === 0) {
+      setWorkspaces([DEFAULT_WORKSPACE]);
+    } else {
+      setWorkspaces(savedWorkspaces);
+    }
+    
+    setAllSections(savedSections);
+    setActiveWorkspaceId(savedActiveId);
+    
+    // Clear data cache to force re-fetch from localStorage
+    setDataCache({});
+    
+    console.log('[WorkspaceContext] Reloaded from storage:', {
+      workspaces: savedWorkspaces.length,
+      sections: savedSections.length,
+    });
+  }, []);
+  
+  // Listen for sync events
+  useEffect(() => {
+    const handleSyncComplete = () => {
+      console.log('[WorkspaceContext] Received workspace-reload event');
+      reloadFromStorage();
+    };
+    
+    window.addEventListener('workspace-reload', handleSyncComplete);
+    
+    return () => {
+      window.removeEventListener('workspace-reload', handleSyncComplete);
+    };
+  }, [reloadFromStorage]);
+  
   const value: WorkspaceContextValue = {
     workspaces,
     activeWorkspace,
@@ -320,6 +361,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setSectionData,
     exportAll,
     importAll,
+    reloadFromStorage,
   };
   
   return (

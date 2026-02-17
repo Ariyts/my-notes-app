@@ -15,6 +15,7 @@ import {
   clearSession,
 } from './lib/crypto';
 import { useAutoLock } from './lib/useAutoLock';
+import { autoSyncFromServer } from './lib/autoSync';
 
 // Legacy route redirector - redirects old routes to new section routes
 function LegacyRedirect() {
@@ -22,7 +23,7 @@ function LegacyRedirect() {
   return <Navigate to={`/section/${typeId}`} replace />;
 }
 
-type AppStatus = 'loading' | 'setup' | 'locked' | 'unlocked';
+type AppStatus = 'loading' | 'setup' | 'locked' | 'unlocked' | 'syncing';
 
 // Auto-lock timeout (15 minutes)
 const AUTO_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
@@ -51,6 +52,22 @@ export function App() {
     },
   });
   
+  // Sync data from server after unlock
+  const syncFromServer = useCallback(async () => {
+    try {
+      console.log('[App] Starting auto-sync from server...');
+      const result = await autoSyncFromServer();
+      
+      if (result.success) {
+        console.log('[App] Auto-sync successful:', result);
+      } else {
+        console.log('[App] Auto-sync result:', result);
+      }
+    } catch (error) {
+      console.error('[App] Auto-sync failed:', error);
+    }
+  }, []);
+  
   useEffect(() => {
     // Register for PWA install prompt
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -60,7 +77,7 @@ export function App() {
     });
     
     // Check encryption status
-    const checkStatus = () => {
+    const checkStatus = async () => {
       const encryptionSetup = isEncryptionSetUp();
       const sessionActive = isSessionActive();
       const hasVault = loadEncryptedVault() !== null;
@@ -71,6 +88,8 @@ export function App() {
         // Encryption is set up
         if (sessionActive) {
           setStatus('unlocked');
+          // Auto-sync from server on app start (if already unlocked)
+          syncFromServer();
         } else {
           setStatus('locked');
         }
@@ -94,11 +113,13 @@ export function App() {
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, []);
+  }, [syncFromServer]);
   
   const handleUnlock = () => {
     setStatus('unlocked');
     setAutoLockWarning(null);
+    // Sync from server after unlock
+    syncFromServer();
   };
   
   const handleSetupComplete = () => {
