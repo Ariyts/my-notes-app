@@ -559,6 +559,84 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
     ));
   };
   
+  // Create initial commit for empty repository
+  const createInitialCommit = async (cfg: RepoSyncConfig): Promise<{ commitSha: string; treeSha: string }> => {
+    // Create an empty tree
+    const treeRes = await fetch(
+      `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/git/trees`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${cfg.token}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({ tree: [] }),
+      }
+    );
+    
+    if (!treeRes.ok) {
+      const errorText = await treeRes.text();
+      throw new Error(`Failed to create tree: ${treeRes.status} ${errorText}`);
+    }
+    
+    const treeData = await treeRes.json();
+    const treeSha = treeData.sha;
+    
+    // Create initial commit
+    const commitRes = await fetch(
+      `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/git/commits`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${cfg.token}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({
+          message: 'Initial commit - Pentest Hub data sync',
+          tree: treeSha,
+          parents: [],
+        }),
+      }
+    );
+    
+    if (!commitRes.ok) {
+      const errorText = await commitRes.text();
+      throw new Error(`Failed to create commit: ${commitRes.status} ${errorText}`);
+    }
+    
+    const commitData = await commitRes.json();
+    const commitSha = commitData.sha;
+    
+    // Create the branch reference
+    const refRes = await fetch(
+      `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/git/refs`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${cfg.token}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({
+          ref: `refs/heads/${cfg.branch}`,
+          sha: commitSha,
+        }),
+      }
+    );
+    
+    if (!refRes.ok) {
+      const errorText = await refRes.text();
+      throw new Error(`Failed to create branch '${cfg.branch}': ${refRes.status} ${errorText}`);
+    }
+    
+    return { commitSha, treeSha };
+  };
+  
   // Push changes
   const handlePush = async () => {
     if (!config) return;
@@ -596,25 +674,91 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         }
       );
       
-      if (!branchRes.ok) throw new Error('Failed to get branch');
+      let baseTreeSha: string;
+      let baseTree: string;
       
-      const branchData = await branchRes.json();
-      const baseTreeSha = branchData.object.sha;
-      
-      // Get commit tree
-      const commitRes = await fetch(
-        `https://api.github.com/repos/${config.owner}/${config.repo}/git/commits/${baseTreeSha}`,
-        {
-          headers: {
-            Authorization: `Bearer ${config.token}`,
-            Accept: 'application/vnd.github+json',
-            'X-GitHub-Api-Version': '2022-11-28',
-          },
+      if (!branchRes.ok) {
+        const errorBody = await branchRes.text();
+        console.error('Branch fetch error:', branchRes.status, errorBody);
+        
+        if (branchRes.status === 404) {
+          // Branch doesn't exist - check if repo is empty
+          const repoRes = await fetch(
+            `https://api.github.com/repos/${config.owner}/${config.repo}`,
+            {
+              headers: {
+                Authorization: `Bearer ${config.token}`,
+                Accept: 'application/vnd.github+json',
+                'X-GitHub-Api-Version': '2022-11-28',
+              },
+            }
+          );
+          
+          if (!repoRes.ok) {
+            throw new Error(`Repository '${config.owner}/${config.repo}' not found. Check owner and repo name.`);
+          }
+          
+          const repoData = await repoRes.json();
+          
+          if (repoData.size === 0) {
+            // Empty repository - create initial commit
+            setSyncMessage({ type: 'info', text: 'Creating initial commit in empty repository...' });
+            
+            const initData = await createInitialCommit(config);
+            baseTreeSha = initData.commitSha;
+            baseTree = initData.treeSha;
+          } else {
+            // Repo exists but branch doesn't - list available branches
+            const branchesRes = await fetch(
+              `https://api.github.com/repos/${config.owner}/${config.repo}/branches`,
+              {
+                headers: {
+                  Authorization: `Bearer ${config.token}`,
+                  Accept: 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                },
+              }
+            );
+            
+            if (branchesRes.ok) {
+              const branches = await branchesRes.json();
+              const branchNames = branches.map((b: { name: string }) => b.name).join(', ');
+              throw new Error(`Branch '${config.branch}' not found. Available branches: ${branchNames}`);
+            } else {
+              throw new Error(`Branch '${config.branch}' doesn't exist. Try 'main' or 'master'.`);
+            }
+          }
+        } else if (branchRes.status === 403) {
+          throw new Error('Access denied. Check if token has "repo" scope.');
+        } else if (branchRes.status === 401) {
+          throw new Error('Invalid token. Please re-enter your GitHub PAT.');
+        } else {
+          throw new Error(`GitHub API error (${branchRes.status}): ${errorBody}`);
         }
-      );
-      
-      const commitData = await commitRes.json();
-      const baseTree = commitData.tree.sha;
+      } else {
+        // Branch exists - proceed normally
+        const branchData = await branchRes.json();
+        baseTreeSha = branchData.object.sha;
+        
+        // Get commit tree
+        const commitRes = await fetch(
+          `https://api.github.com/repos/${config.owner}/${config.repo}/git/commits/${baseTreeSha}`,
+          {
+            headers: {
+              Authorization: `Bearer ${config.token}`,
+              Accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+            },
+          }
+        );
+        
+        if (!commitRes.ok) {
+          throw new Error('Failed to get commit data');
+        }
+        
+        const commitData = await commitRes.json();
+        baseTree = commitData.tree.sha;
+      }
       
       // Create blobs for each file
       const treeItems: { path: string; mode: string; type: string; sha: string }[] = [];
