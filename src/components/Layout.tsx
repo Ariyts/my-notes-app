@@ -6,12 +6,15 @@ import { GlobalSearch } from './GlobalSearch';
 import { ExportImport } from './ExportImport';
 import { ExportPanel } from './ExportPanel';
 import { WorkspaceBar } from './workspaces/WorkspaceBar';
+import { AlertTriangle, X } from 'lucide-react';
 
 interface LayoutProps {
   onLock?: () => void;
+  autoLockWarning?: number | null;
+  onDismissWarning?: () => void;
 }
 
-export function Layout({ onLock }: LayoutProps) {
+export function Layout({ onLock, autoLockWarning, onDismissWarning }: LayoutProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isExportPanelOpen, setIsExportPanelOpen] = useState(false);
@@ -54,6 +57,26 @@ export function Layout({ onLock }: LayoutProps) {
         <div className="hidden lg:block">
           <WorkspaceBar />
         </div>
+        
+        {/* Auto-lock Warning Banner */}
+        {autoLockWarning && autoLockWarning > 0 && (
+          <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-400 text-sm">
+                <AlertTriangle className="h-4 w-4" />
+                <span>
+                  Auto-lock in <strong>{autoLockWarning}s</strong> due to inactivity
+                </span>
+              </div>
+              <button
+                onClick={onDismissWarning}
+                className="text-amber-400 hover:text-amber-300 px-2 py-1 rounded hover:bg-amber-500/10 text-sm"
+              >
+                Stay unlocked
+              </button>
+            </div>
+          </div>
+        )}
         
         {/* Mobile Navigation */}
         <MobileNav onOpenSearch={() => setIsSearchOpen(true)} />

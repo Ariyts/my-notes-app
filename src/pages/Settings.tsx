@@ -14,8 +14,11 @@ import {
   Trash2,
   Eye,
   EyeOff,
+  KeyRound,
+  FileDown,
 } from 'lucide-react';
 import { RepositorySync } from '../components/sync/RepositorySync';
+import { ChangePasswordModal } from '../components/security/ChangePasswordModal';
 import {
   isEncryptionSetUp,
   isSessionActive,
@@ -40,6 +43,7 @@ export function Settings() {
   const [sessionActive, setSessionActive] = useState(isSessionActive());
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [showRemoveModal, setShowRemoveModal] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [setupPassword, setSetupPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -85,6 +89,51 @@ export function Settings() {
     URL.revokeObjectURL(url);
     setMessage({ type: 'success', text: 'Backup exported successfully!' });
     setTimeout(() => setMessage(null), 3000);
+  };
+  
+  // Export decrypted backup (requires password)
+  const handleExportDecrypted = async () => {
+    if (!encryptionEnabled) {
+      // Not encrypted - just export
+      handleExport();
+      return;
+    }
+    
+    const password = getSessionPassword();
+    if (!password) {
+      setMessage({ type: 'error', text: 'Unlock vault first to export decrypted data' });
+      return;
+    }
+    
+    setIsProcessing(true);
+    
+    try {
+      const vault = loadEncryptedVault();
+      if (!vault) {
+        setMessage({ type: 'error', text: 'No encrypted vault found' });
+        setIsProcessing(false);
+        return;
+      }
+      
+      // Decrypt
+      const decryptedData = await decrypt(vault, password);
+      
+      // Export
+      const blob = new Blob([JSON.stringify(decryptedData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pentest-hub-decrypted-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      setMessage({ type: 'success', text: 'Decrypted backup exported! ⚠️ This file is NOT encrypted!' });
+    } catch (err) {
+      console.error('Failed to export decrypted:', err);
+      setMessage({ type: 'error', text: 'Failed to export decrypted data' });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleClearCache = async () => {
@@ -240,7 +289,7 @@ export function Settings() {
           </div>
           <div>
             <h2 className="text-lg font-semibold text-zinc-100">Security</h2>
-            <p className="text-sm text-zinc-500">AES-256 encryption for your data</p>
+            <p className="text-sm text-zinc-500">AES-256-GCM encryption • Auto-lock: 15 min</p>
           </div>
         </div>
         
@@ -255,7 +304,7 @@ export function Settings() {
                 <div className="text-xs text-zinc-500">
                   {encryptionEnabled 
                     ? sessionActive 
-                      ? 'Vault is unlocked' 
+                      ? 'Vault is unlocked • Auto-lock active' 
                       : 'Vault is locked'
                     : 'Your data is stored in plain text'}
                 </div>
@@ -272,14 +321,24 @@ export function Settings() {
                   Setup Encryption
                 </button>
               ) : (
-                <button
-                  onClick={() => setShowRemoveModal(true)}
-                  disabled={!sessionActive}
-                  className="flex items-center gap-2 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-600 disabled:opacity-50"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Remove Encryption
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowChangePassword(true)}
+                    disabled={!sessionActive}
+                    className="flex items-center gap-2 rounded-lg bg-zinc-700 px-3 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-600 disabled:opacity-50"
+                  >
+                    <KeyRound className="h-4 w-4" />
+                    Change
+                  </button>
+                  <button
+                    onClick={() => setShowRemoveModal(true)}
+                    disabled={!sessionActive}
+                    className="flex items-center gap-2 rounded-lg bg-zinc-700 px-3 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-600 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Remove
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -291,6 +350,7 @@ export function Settings() {
                 Your data is encrypted with AES-256-GCM
               </div>
               <p className="text-xs text-emerald-400/70 mt-1">
+                Auto-lock after 15 minutes of inactivity. 
                 Even if someone gains access to your repository or localStorage, 
                 they cannot read your data without the master password.
               </p>
@@ -432,14 +492,32 @@ export function Settings() {
         <div className="flex flex-wrap gap-3">
           <button
             onClick={handleExport}
-            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500"
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
           >
             <Download className="h-4 w-4" />
-            Export JSON Backup
+            Export Backup
           </button>
+          {encryptionEnabled && (
+            <button
+              onClick={handleExportDecrypted}
+              disabled={isProcessing || !sessionActive}
+              className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+            >
+              <FileDown className="h-4 w-4" />
+              Export Decrypted
+            </button>
+          )}
         </div>
         <p className="mt-3 text-sm text-zinc-500">
-          Export all data as JSON backup. Use Repository Sync for cross-device sync.
+          {encryptionEnabled ? (
+            <>
+              <strong>Export Backup</strong> — exports encrypted data (safe to store).
+              <br />
+              <strong>Export Decrypted</strong> — exports plain text (⚠️ NOT secure, requires unlock).
+            </>
+          ) : (
+            'Export all data as JSON backup. Use Repository Sync for cross-device sync.'
+          )}
         </p>
       </div>
 
@@ -455,9 +533,10 @@ export function Settings() {
           Data is stored in browser localStorage. Use Repository Sync for backup.
         </p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs text-zinc-600">
-          <span className="rounded bg-zinc-800 px-2 py-1">Version 4.1.0</span>
+          <span className="rounded bg-zinc-800 px-2 py-1">Version 4.2.0</span>
           <span className="rounded bg-zinc-800 px-2 py-1">Workspaces</span>
           <span className="rounded bg-zinc-800 px-2 py-1">AES-256 Encryption</span>
+          <span className="rounded bg-zinc-800 px-2 py-1">Auto-Lock</span>
           <span className="rounded bg-zinc-800 px-2 py-1">Repository Sync</span>
           <span className="rounded bg-zinc-800 px-2 py-1">PWA Ready</span>
         </div>
@@ -595,6 +674,17 @@ export function Settings() {
             </div>
           </div>
         </div>
+      )}
+      
+      {/* Change Password Modal */}
+      {showChangePassword && (
+        <ChangePasswordModal
+          onClose={() => setShowChangePassword(false)}
+          onSuccess={() => {
+            setShowChangePassword(false);
+            setMessage({ type: 'success', text: 'Password changed successfully!' });
+          }}
+        />
       )}
     </div>
   );

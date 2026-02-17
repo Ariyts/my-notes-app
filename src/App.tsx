@@ -5,7 +5,7 @@ import { ContentTypesManager } from './pages/ContentTypes';
 import { SectionPage } from './pages/SectionPage';
 import { DataProvider } from './lib/DataContext';
 import { WorkspaceProvider } from './lib/WorkspaceContext';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { LockScreen } from './components/security/LockScreen';
 import { SetupPassword } from './components/security/SetupPassword';
 import { 
@@ -14,6 +14,7 @@ import {
   loadEncryptedVault,
   clearSession,
 } from './lib/crypto';
+import { useAutoLock } from './lib/useAutoLock';
 
 // Legacy route redirector - redirects old routes to new section routes
 function LegacyRedirect() {
@@ -23,10 +24,32 @@ function LegacyRedirect() {
 
 type AppStatus = 'loading' | 'setup' | 'locked' | 'unlocked';
 
+// Auto-lock timeout (15 minutes)
+const AUTO_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
+
 export function App() {
   const [status, setStatus] = useState<AppStatus>('loading');
   const [showSetup, setShowSetup] = useState(false);
   const [encryptionEnabled, setEncryptionEnabled] = useState(isEncryptionSetUp());
+  const [autoLockWarning, setAutoLockWarning] = useState<number | null>(null);
+  
+  // Handle lock
+  const handleLock = useCallback(() => {
+    clearSession();
+    setStatus('locked');
+    setAutoLockWarning(null);
+  }, []);
+  
+  // Auto-lock hook
+  const { resetTimer } = useAutoLock({
+    timeoutMs: AUTO_LOCK_TIMEOUT_MS,
+    onLock: handleLock,
+    enabled: status === 'unlocked' && encryptionEnabled,
+    warningMs: 60 * 1000, // 1 minute warning
+    onWarning: (remainingSeconds) => {
+      setAutoLockWarning(remainingSeconds);
+    },
+  });
   
   useEffect(() => {
     // Register for PWA install prompt
@@ -75,10 +98,12 @@ export function App() {
   
   const handleUnlock = () => {
     setStatus('unlocked');
+    setAutoLockWarning(null);
   };
   
   const handleSetupComplete = () => {
     setShowSetup(false);
+    setEncryptionEnabled(true);
     setStatus('unlocked');
   };
   
@@ -86,10 +111,11 @@ export function App() {
     setShowSetup(false);
   };
   
-  const handleLock = () => {
-    clearSession();
-    setStatus('locked');
-  };
+  // Dismiss auto-lock warning (extends timer)
+  const dismissWarning = useCallback(() => {
+    setAutoLockWarning(null);
+    resetTimer();
+  }, [resetTimer]);
   
   // Loading state
   if (status === 'loading') {
@@ -121,7 +147,13 @@ export function App() {
       <WorkspaceProvider>
         <HashRouter>
           <Routes>
-            <Route path="/" element={<Layout onLock={encryptionEnabled ? handleLock : undefined} />}>
+            <Route path="/" element={
+              <Layout 
+                onLock={encryptionEnabled ? handleLock : undefined}
+                autoLockWarning={autoLockWarning}
+                onDismissWarning={dismissWarning}
+              />
+            }>
               {/* New universal section route */}
               <Route path="section/:sectionId" element={<SectionPage />} />
               
