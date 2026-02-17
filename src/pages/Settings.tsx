@@ -28,6 +28,12 @@ import {
   saveEncryptedVault,
   loadEncryptedVault,
   decrypt,
+  generatePasswordHash,
+  savePasswordHash,
+  markEncryptionSetUp,
+  deriveKey,
+  base64ToUint8Array,
+  setSessionKey,
 } from '../lib/crypto';
 
 export function Settings() {
@@ -180,7 +186,20 @@ export function Settings() {
       const encrypted = await encrypt(allData, setupPassword);
       saveEncryptedVault(encrypted);
       
+      // Save password hash for verification
+      const { hash, salt } = await generatePasswordHash(setupPassword);
+      savePasswordHash(hash, salt);
+      
+      // Set session key
+      const encryptionSalt = base64ToUint8Array(encrypted.salt);
+      const key = await deriveKey(setupPassword, encryptionSalt);
+      setSessionKey(key, setupPassword);
+      
+      // Mark as set up
+      markEncryptionSetUp();
+      
       setEncryptionEnabled(true);
+      setSessionActive(true);
       setShowSetupModal(false);
       setSetupPassword('');
       setMessage({ type: 'success', text: 'Encryption enabled! Your data is now protected.' });

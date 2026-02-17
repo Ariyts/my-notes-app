@@ -114,12 +114,12 @@ export function ChangePasswordModal({ onClose, onSuccess }: ChangePasswordModalP
       saveEncryptedVault(newVault);
       
       // Update password hash
-      const hash = await generatePasswordHash(newPassword);
-      savePasswordHash(hash);
+      const { hash: pwdHash, salt: pwdSalt } = await generatePasswordHash(newPassword);
+      savePasswordHash(pwdHash, pwdSalt);
       
       // Update session
-      const salt = base64ToUint8Array(newVault.salt);
-      const key = await deriveKey(newPassword, salt);
+      const encryptionSalt = base64ToUint8Array(newVault.salt);
+      const key = await deriveKey(newPassword, encryptionSalt);
       setSessionKey(key, newPassword);
       
       // Clear sensitive data from memory

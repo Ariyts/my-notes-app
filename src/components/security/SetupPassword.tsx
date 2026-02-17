@@ -111,12 +111,12 @@ export function SetupPassword({ onComplete, onSkip }: SetupPasswordProps) {
       saveEncryptedVault(encrypted);
       
       // Save password hash for quick verification
-      const hash = await generatePasswordHash(pwd);
-      savePasswordHash(hash);
+      const { hash: pwdHash, salt: pwdSalt } = await generatePasswordHash(pwd);
+      savePasswordHash(pwdHash, pwdSalt);
       
       // Derive key for session
-      const salt = Uint8Array.from(atob(encrypted.salt), c => c.charCodeAt(0));
-      const key = await deriveKey(pwd, salt);
+      const encryptionSalt = Uint8Array.from(atob(encrypted.salt), c => c.charCodeAt(0));
+      const key = await deriveKey(pwd, encryptionSalt);
       setSessionKey(key, pwd);
       
       // Mark setup complete

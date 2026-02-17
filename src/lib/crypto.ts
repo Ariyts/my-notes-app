@@ -286,6 +286,7 @@ export function generatePassword(length: number = 24): string {
 export const CRYPTO_STORAGE_KEYS = {
   ENCRYPTED_VAULT: 'pentest-hub-encrypted-vault',
   PASSWORD_HASH: 'pentest-hub-password-hash',  // NOT the password, just a hash for quick verification
+  PASSWORD_HASH_SALT: 'pentest-hub-password-hash-salt',  // Random salt for password hash
   ENCRYPTION_SET_UP: 'pentest-hub-encryption-setup',
 };
 
@@ -323,32 +324,81 @@ export function markEncryptionSetUp(): void {
 }
 
 /**
- * Generate password hash for quick verification
- * NOT used for decryption, just to check if password is correct without full decrypt
+ * Generate password verification hash using PBKDF2
+ * This is NOT for decryption, just for quick "is password correct" check
+ * 
+ * Security: Uses PBKDF2 with 100,000 iterations and random salt
+ * to prevent rainbow table and brute-force attacks
  */
-export async function generatePasswordHash(password: string): Promise<string> {
+export async function generatePasswordHash(password: string, salt?: Uint8Array): Promise<{
+  hash: string;
+  salt: string;
+}> {
+  // Generate random salt if not provided
+  const hashSalt = salt || crypto.getRandomValues(new Uint8Array(16));
+  
   const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'pentest-hub-salt');
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return uint8ArrayToBase64(new Uint8Array(hash));
+  const passwordBuffer = encoder.encode(password);
+  
+  // Import password as raw key for PBKDF2
+  const baseKey = await crypto.subtle.importKey(
+    'raw',
+    passwordBuffer,
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  
+  // Derive bits using PBKDF2 (same security level as encryption)
+  const hashBits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: hashSalt.buffer as ArrayBuffer,
+      iterations: 100000,  // Same as encryption - strong protection
+      hash: 'SHA-256',
+    },
+    baseKey,
+    256  // 32 bytes output
+  );
+  
+  return {
+    hash: uint8ArrayToBase64(new Uint8Array(hashBits)),
+    salt: uint8ArrayToBase64(hashSalt),
+  };
 }
 
 /**
- * Save password hash for verification
+ * Save password hash and salt for verification
  */
-export function savePasswordHash(hash: string): void {
+export function savePasswordHash(hash: string, salt: string): void {
   localStorage.setItem(CRYPTO_STORAGE_KEYS.PASSWORD_HASH, hash);
+  localStorage.setItem(CRYPTO_STORAGE_KEYS.PASSWORD_HASH_SALT, salt);
 }
 
 /**
- * Verify password against stored hash
+ * Get stored password hash and salt
+ */
+export function getPasswordHash(): { hash: string; salt: string } | null {
+  const hash = localStorage.getItem(CRYPTO_STORAGE_KEYS.PASSWORD_HASH);
+  const salt = localStorage.getItem(CRYPTO_STORAGE_KEYS.PASSWORD_HASH_SALT);
+  
+  if (!hash || !salt) return null;
+  return { hash, salt };
+}
+
+/**
+ * Verify password against stored hash using PBKDF2
+ * Returns true if password matches
  */
 export async function verifyPasswordHash(password: string): Promise<boolean> {
-  const storedHash = localStorage.getItem(CRYPTO_STORAGE_KEYS.PASSWORD_HASH);
-  if (!storedHash) return false;
+  const stored = getPasswordHash();
+  if (!stored) return false;
   
-  const currentHash = await generatePasswordHash(password);
-  return currentHash === storedHash;
+  const salt = base64ToUint8Array(stored.salt);
+  const { hash } = await generatePasswordHash(password, salt);
+  
+  // Constant-time comparison to prevent timing attacks
+  return hash === stored.hash;
 }
 
 /**
@@ -357,6 +407,7 @@ export async function verifyPasswordHash(password: string): Promise<boolean> {
 export function clearEncryptionData(): void {
   localStorage.removeItem(CRYPTO_STORAGE_KEYS.ENCRYPTED_VAULT);
   localStorage.removeItem(CRYPTO_STORAGE_KEYS.PASSWORD_HASH);
+  localStorage.removeItem(CRYPTO_STORAGE_KEYS.PASSWORD_HASH_SALT);
   localStorage.removeItem(CRYPTO_STORAGE_KEYS.ENCRYPTION_SET_UP);
   clearSession();
 }

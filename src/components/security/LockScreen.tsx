@@ -91,13 +91,13 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
         await decrypt(encryptedData, password);
         
         // Success! Derive key for session
-        const salt = base64ToUint8Array(encryptedData.salt);
-        const key = await deriveKey(password, salt);
+        const encryptionSalt = base64ToUint8Array(encryptedData.salt);
+        const key = await deriveKey(password, encryptionSalt);
         setSessionKey(key, password);
         
         // Save password hash for quick verification
-        const hash = await generatePasswordHash(password);
-        savePasswordHash(hash);
+        const { hash: pwdHash, salt: pwdSalt } = await generatePasswordHash(password);
+        savePasswordHash(pwdHash, pwdSalt);
         
         // Reset attempts
         setAttempts(0);
