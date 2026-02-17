@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
 import { Sidebar } from './SidebarNew';
 import { MobileNav } from './MobileNav';
 import { GlobalSearch } from './GlobalSearch';
 import { ExportImport } from './ExportImport';
 import { ExportPanel } from './ExportPanel';
 import { WorkspaceBar } from './workspaces/WorkspaceBar';
+import { SyncStatusBanner } from './sync/SyncStatusBanner';
 import { AlertTriangle, X } from 'lucide-react';
 
 interface LayoutProps {
@@ -15,9 +16,19 @@ interface LayoutProps {
 }
 
 export function Layout({ onLock, autoLockWarning, onDismissWarning }: LayoutProps) {
+  const navigate = useNavigate();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isExportPanelOpen, setIsExportPanelOpen] = useState(false);
+  
+  // Navigate to settings for sync actions
+  const handlePull = () => {
+    navigate('/settings');
+  };
+  
+  const handlePush = () => {
+    navigate('/settings');
+  };
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -93,6 +104,9 @@ export function Layout({ onLock, autoLockWarning, onDismissWarning }: LayoutProp
       <GlobalSearch isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
       <ExportImport isOpen={isExportOpen} onClose={() => setIsExportOpen(false)} />
       <ExportPanel isOpen={isExportPanelOpen} onClose={() => setIsExportPanelOpen(false)} />
+      
+      {/* Sync Status Banner */}
+      <SyncStatusBanner onPull={handlePull} onPush={handlePush} />
     </div>
   );
 }

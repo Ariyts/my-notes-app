@@ -95,8 +95,14 @@ interface GitHubRepo {
   private: boolean;
 }
 
-// Storage key
+// Storage keys
 const REPO_SYNC_CONFIG_KEY = 'pentest-hub-repo-sync-config';
+const SYNC_VERSION_KEY = 'pentest-hub-sync-version';
+
+// File names (encrypted versions)
+const WORKSPACES_FILE = 'workspaces.enc.json';
+const SECTIONS_FILE = 'sections.enc.json';
+const METADATA_FILE = 'metadata.json';
 
 // Load/save config
 function loadConfig(): RepoSyncConfig | null {
@@ -478,9 +484,9 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         }
       }
       
-      // Also check workspaces.json and sections.json
-      const workspacesPath = `${config.dataPath}/workspaces.json`;
-      const sectionsPath = `${config.dataPath}/sections.json`;
+      // Also check workspaces.enc.json and sections.enc.json (encrypted metadata)
+      const workspacesPath = `${config.dataPath}/${WORKSPACES_FILE}`;
+      const sectionsPath = `${config.dataPath}/${SECTIONS_FILE}`;
       
       const localWorkspaces = JSON.stringify(workspaces, null, 2);
       const localSections = JSON.stringify(sections, null, 2);
@@ -488,14 +494,15 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       const remoteWorkspaces = await fetchRemoteFile(workspacesPath);
       const remoteSections = await fetchRemoteFile(sectionsPath);
       
-      // Add workspaces.json change
-      if (!remoteWorkspaces || remoteWorkspaces.content !== localWorkspaces) {
+      // Add workspaces.enc.json change (always include if encryption available)
+      // Note: We compare encrypted content, not plaintext
+      if (encryptionAvailable) {
         changes.unshift({
           path: workspacesPath,
           workspaceName: 'System',
           status: remoteWorkspaces ? 'modified' : 'added',
-          additions: localWorkspaces.split('\n').length,
-          deletions: remoteWorkspaces ? remoteWorkspaces.content.split('\n').length : 0,
+          additions: 1, // Encrypted content, approximate
+          deletions: remoteWorkspaces ? 1 : 0,
           sizeBytes: new Blob([localWorkspaces]).size,
           itemChanges: [],
           selected: true,
@@ -504,14 +511,14 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         });
       }
       
-      // Add sections.json change
-      if (!remoteSections || remoteSections.content !== localSections) {
+      // Add sections.enc.json change
+      if (encryptionAvailable) {
         changes.unshift({
           path: sectionsPath,
           workspaceName: 'System',
           status: remoteSections ? 'modified' : 'added',
-          additions: localSections.split('\n').length,
-          deletions: remoteSections ? remoteSections.content.split('\n').length : 0,
+          additions: 1,
+          deletions: remoteSections ? 1 : 0,
           sizeBytes: new Blob([localSections]).size,
           itemChanges: [],
           selected: true,
@@ -556,6 +563,17 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   const handlePush = async () => {
     if (!config) return;
     
+    // Require encryption for sync
+    if (!isEncryptionSetUp()) {
+      setSyncMessage({ type: 'error', text: 'Encryption must be enabled before syncing. Go to Settings → Security.' });
+      return;
+    }
+    
+    if (!isSessionActive()) {
+      setSyncMessage({ type: 'error', text: 'Please unlock your vault first.' });
+      return;
+    }
+    
     const selectedChanges = changes.filter(c => c.selected && c.status !== 'unchanged');
     if (selectedChanges.length === 0) {
       setSyncMessage({ type: 'info', text: 'No files selected' });
@@ -563,7 +581,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
     }
     
     setIsSyncing(true);
-    setSyncMessage({ type: 'info', text: 'Pushing changes...' });
+    setSyncMessage({ type: 'info', text: 'Pushing encrypted data...' });
     
     try {
       // Get current branch commit
@@ -600,32 +618,45 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       
       // Create blobs for each file
       const treeItems: { path: string; mode: string; type: string; sha: string }[] = [];
+      const password = getSessionPassword();
+      
+      if (!password) {
+        throw new Error('Session password not available');
+      }
+      
+      // Get current sync version
+      let currentVersion = parseInt(localStorage.getItem(SYNC_VERSION_KEY) || '0', 10);
       
       for (const change of selectedChanges) {
         let content: string;
         
         // Determine what content to push
-        if (change.path.endsWith('workspaces.json')) {
-          content = localStorage.getItem('pentest-hub-workspaces') || '[]';
-        } else if (change.path.endsWith('sections.json')) {
-          content = localStorage.getItem('pentest-hub-sections') || '[]';
+        if (change.path.endsWith(WORKSPACES_FILE)) {
+          // Encrypt workspaces.enc.json - ALWAYS encrypted
+          const rawContent = localStorage.getItem('pentest-hub-workspaces') || '[]';
+          const encrypted = await encrypt(JSON.parse(rawContent), password);
+          content = JSON.stringify(encrypted, null, 2);
+        } else if (change.path.endsWith(SECTIONS_FILE)) {
+          // Encrypt sections.enc.json - ALWAYS encrypted
+          const rawContent = localStorage.getItem('pentest-hub-sections') || '[]';
+          const encrypted = await encrypt(JSON.parse(rawContent), password);
+          content = JSON.stringify(encrypted, null, 2);
         } else {
           // Section data file - extract workspace and section id from path
           const match = change.path.match(/\/([^/]+)\/([^/]+)\.json$/);
           if (match) {
             const sectionId = match[2];
-            content = localStorage.getItem(`section-data-${sectionId}`) || '[]';
+            const rawContent = localStorage.getItem(`section-data-${sectionId}`) || '[]';
+            
+            // Encrypt section data
+            if (encryptionEnabled && encryptionAvailable) {
+              const encrypted = await encrypt(JSON.parse(rawContent), password);
+              content = JSON.stringify(encrypted, null, 2);
+            } else {
+              content = rawContent;
+            }
           } else {
             continue;
-          }
-        }
-        
-        // Encrypt if enabled
-        if (encryptionEnabled && encryptionAvailable) {
-          const password = getSessionPassword();
-          if (password) {
-            const encrypted = await encrypt(JSON.parse(content), password);
-            content = JSON.stringify(encrypted, null, 2);
           }
         }
         
@@ -710,8 +741,11 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       );
       
       if (updateRes.ok) {
-        const encStatus = encryptionEnabled ? ' (encrypted)' : '';
-        setSyncMessage({ type: 'success', text: `Pushed ${selectedChanges.length} file(s)${encStatus}!` });
+        // Update local version
+        currentVersion++;
+        localStorage.setItem(SYNC_VERSION_KEY, String(currentVersion));
+        
+        setSyncMessage({ type: 'success', text: `Pushed ${selectedChanges.length} encrypted file(s)!` });
         setChanges([]);
         setShowChanges(false);
         
@@ -720,7 +754,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
           ...config, 
           lastSyncSha: newCommitData.sha, 
           lastSyncAt: new Date().toISOString(),
-          encryptionEnabled,
+          encryptionEnabled: true,
         };
         saveConfig(updatedConfig);
         setConfig(updatedConfig);
@@ -740,22 +774,77 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   const handlePull = async () => {
     if (!config) return;
     
+    // Require encryption for sync
+    if (!isEncryptionSetUp()) {
+      setSyncMessage({ type: 'error', text: 'Encryption must be enabled before syncing.' });
+      return;
+    }
+    
+    if (!isSessionActive()) {
+      setSyncMessage({ type: 'error', text: 'Please unlock your vault first.' });
+      return;
+    }
+    
     if (!confirm('This will replace local data with data from repository. Continue?')) return;
     
     setIsSyncing(true);
-    setSyncMessage({ type: 'info', text: 'Pulling changes...' });
+    setSyncMessage({ type: 'info', text: 'Pulling and decrypting data...' });
+    
+    const password = getSessionPassword();
+    if (!password) {
+      setSyncMessage({ type: 'error', text: 'Session password not available.' });
+      setIsSyncing(false);
+      return;
+    }
     
     try {
-      // Pull workspaces.json
-      const workspacesRemote = await fetchRemoteFile(`${config.dataPath}/workspaces.json`);
+      // Pull workspaces.enc.json (encrypted)
+      const workspacesRemote = await fetchRemoteFile(`${config.dataPath}/${WORKSPACES_FILE}`);
       if (workspacesRemote) {
-        localStorage.setItem('pentest-hub-workspaces', workspacesRemote.content);
+        try {
+          const encryptedData = JSON.parse(workspacesRemote.content);
+          if (encryptedData.algorithm === 'AES-256-GCM') {
+            const decrypted = await decrypt(encryptedData, password);
+            localStorage.setItem('pentest-hub-workspaces', JSON.stringify(decrypted));
+          } else {
+            // Legacy unencrypted format
+            localStorage.setItem('pentest-hub-workspaces', workspacesRemote.content);
+          }
+        } catch {
+          // Try as plain JSON (legacy)
+          localStorage.setItem('pentest-hub-workspaces', workspacesRemote.content);
+        }
       }
       
-      // Pull sections.json
-      const sectionsRemote = await fetchRemoteFile(`${config.dataPath}/sections.json`);
+      // Pull sections.enc.json (encrypted)
+      const sectionsRemote = await fetchRemoteFile(`${config.dataPath}/${SECTIONS_FILE}`);
       if (sectionsRemote) {
-        localStorage.setItem('pentest-hub-sections', sectionsRemote.content);
+        try {
+          const encryptedData = JSON.parse(sectionsRemote.content);
+          if (encryptedData.algorithm === 'AES-256-GCM') {
+            const decrypted = await decrypt(encryptedData, password);
+            localStorage.setItem('pentest-hub-sections', JSON.stringify(decrypted));
+          } else {
+            // Legacy unencrypted format
+            localStorage.setItem('pentest-hub-sections', sectionsRemote.content);
+          }
+        } catch {
+          // Try as plain JSON (legacy)
+          localStorage.setItem('pentest-hub-sections', sectionsRemote.content);
+        }
+      }
+      
+      // Pull metadata.json
+      const metadataRemote = await fetchRemoteFile(`${config.dataPath}/${METADATA_FILE}`);
+      if (metadataRemote) {
+        try {
+          const metadata = JSON.parse(metadataRemote.content);
+          if (metadata.version) {
+            localStorage.setItem(SYNC_VERSION_KEY, String(metadata.version));
+          }
+        } catch {
+          // Ignore metadata errors
+        }
       }
       
       // Get all sections and pull their data
@@ -775,17 +864,8 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
           try {
             const data = JSON.parse(content);
             if (data.algorithm === 'AES-256-GCM') {
-              if (encryptionAvailable) {
-                const password = getSessionPassword();
-                if (password) {
-                  const decrypted = await decrypt(data, password);
-                  content = JSON.stringify(decrypted);
-                }
-              } else {
-                setSyncMessage({ type: 'error', text: 'Data is encrypted. Unlock first.' });
-                setIsSyncing(false);
-                return;
-              }
+              const decrypted = await decrypt(data, password);
+              content = JSON.stringify(decrypted);
             }
           } catch {
             // Not encrypted or invalid JSON, use as-is
