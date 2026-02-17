@@ -211,6 +211,33 @@ interface RepositorySyncProps {
   onSyncComplete?: () => void;
 }
 
+// Detect repository from URL
+function detectRepoFromUrl(): { owner: string; repo: string } | null {
+  const hostname = window.location.hostname;
+  const pathname = window.location.pathname;
+  
+  // Format: username.github.io/repo-name/
+  if (hostname.endsWith('.github.io')) {
+    const owner = hostname.replace('.github.io', '');
+    // For user.github.io sites, repo name is in pathname or it's owner.github.io
+    const pathParts = pathname.split('/').filter(Boolean);
+    const repo = pathParts[0] || `${owner}.github.io`;
+    return { owner, repo };
+  }
+  
+  // Custom domain - try to get from meta tag or return null
+  const repoMeta = document.querySelector('meta[name="github-repo"]');
+  if (repoMeta) {
+    const content = repoMeta.getAttribute('content') || '';
+    const parts = content.split('/');
+    if (parts.length === 2) {
+      return { owner: parts[0], repo: parts[1] };
+    }
+  }
+  
+  return null;
+}
+
 export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncProps) {
   // State
   const [config, setConfig] = useState<RepoSyncConfig | null>(loadConfig);
@@ -224,16 +251,14 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   // Token validation state
   const [token, setToken] = useState('');
   const [showToken, setShowToken] = useState(false);
-  const [isValidating, setIsValidating] = useState(false);
-  const [tokenUser, setTokenUser] = useState<string | null>(null);
-  const [repos, setRepos] = useState<GitHubRepo[]>([]);
-  const [selectedRepo, setSelectedRepo] = useState('');
-  const [branch, setBranch] = useState('main');
-  const [dataPath, setDataPath] = useState('data');
-  const [loadingRepos, setLoadingRepos] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [detectedInfo, setDetectedInfo] = useState<{
+    owner: string;
+    repo: string;
+    branch: string;
+  } | null>(null);
   
   // Encryption state
-  const [encryptionEnabled, setEncryptionEnabled] = useState(config?.encryptionEnabled ?? false);
   const encryptionAvailable = isEncryptionSetUp() && isSessionActive();
   
   // Load config on mount
@@ -241,20 +266,22 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
     const saved = loadConfig();
     if (saved) {
       setConfig(saved);
-      setEncryptionEnabled(saved.encryptionEnabled ?? false);
       setShowConnectModal(!saved.token);
     }
   }, []);
   
-  // Validate token and load repos
-  const handleValidateToken = async () => {
-    if (!token.trim()) return;
+  // Connect with auto-detection
+  const handleConnect = async () => {
+    if (!token.trim()) {
+      setSyncMessage({ type: 'error', text: 'Please enter a GitHub token' });
+      return;
+    }
     
-    setIsValidating(true);
+    setIsConnecting(true);
     setSyncMessage(null);
     
     try {
-      // Validate token
+      // 1. Validate token
       const userRes = await fetch('https://api.github.com/user', {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -263,56 +290,84 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         },
       });
       
+      if (userRes.status === 401) {
+        setSyncMessage({ type: 'error', text: 'Invalid token. Please check and try again.' });
+        setIsConnecting(false);
+        return;
+      }
+      
       if (!userRes.ok) {
-        setSyncMessage({ type: 'error', text: 'Invalid token' });
-        setIsValidating(false);
+        setSyncMessage({ type: 'error', text: `GitHub API error: ${userRes.status}` });
+        setIsConnecting(false);
         return;
       }
       
       const user = await userRes.json();
-      setTokenUser(user.login);
       
-      // Load repos
-      setLoadingRepos(true);
-      const reposRes = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      });
+      // 2. Detect repository from URL
+      const detected = detectRepoFromUrl();
       
-      if (reposRes.ok) {
-        const reposData = await reposRes.json();
-        setRepos(reposData);
-        setSyncMessage({ type: 'success', text: `Found ${reposData.length} repositories` });
+      if (!detected) {
+        setSyncMessage({ type: 'error', text: 'Could not detect repository from URL. Make sure you are on GitHub Pages.' });
+        setIsConnecting(false);
+        return;
       }
+      
+      // 3. Check access to repository and get default branch
+      const repoRes = await fetch(
+        `https://api.github.com/repos/${detected.owner}/${detected.repo}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+        }
+      );
+      
+      if (repoRes.status === 404) {
+        setSyncMessage({ type: 'error', text: `Repository '${detected.owner}/${detected.repo}' not found or no access. Make sure the token has access to this repository.` });
+        setIsConnecting(false);
+        return;
+      }
+      
+      if (repoRes.status === 403) {
+        setSyncMessage({ type: 'error', text: 'Access denied. Token needs "repo" scope.' });
+        setIsConnecting(false);
+        return;
+      }
+      
+      if (!repoRes.ok) {
+        setSyncMessage({ type: 'error', text: `Failed to access repository: ${repoRes.status}` });
+        setIsConnecting(false);
+        return;
+      }
+      
+      const repoData = await repoRes.json();
+      const defaultBranch = repoData.default_branch;
+      
+      // 4. Save config
+      const newConfig: RepoSyncConfig = {
+        token,
+        owner: detected.owner,
+        repo: detected.repo,
+        branch: defaultBranch,
+        dataPath: 'data', // Fixed path
+        encryptionEnabled: true, // Always encrypted
+      };
+      
+      saveConfig(newConfig);
+      setConfig(newConfig);
+      setShowConnectModal(false);
+      setDetectedInfo({ owner: detected.owner, repo: detected.repo, branch: defaultBranch });
+      setSyncMessage({ type: 'success', text: `Connected! Using branch: ${defaultBranch}` });
+      
     } catch (err) {
-      setSyncMessage({ type: 'error', text: 'Failed to validate token' });
+      console.error('Connection error:', err);
+      setSyncMessage({ type: 'error', text: 'Connection failed. Please check your network.' });
     } finally {
-      setIsValidating(false);
-      setLoadingRepos(false);
+      setIsConnecting(false);
     }
-  };
-  
-  // Connect to repository
-  const handleConnect = () => {
-    if (!token || !selectedRepo) return;
-    
-    const [owner, repo] = selectedRepo.split('/');
-    const newConfig: RepoSyncConfig = {
-      token,
-      owner,
-      repo,
-      branch,
-      dataPath: dataPath.startsWith('/') ? dataPath.slice(1) : dataPath,
-      encryptionEnabled,
-    };
-    
-    saveConfig(newConfig);
-    setConfig(newConfig);
-    setShowConnectModal(false);
-    setSyncMessage({ type: 'success', text: `Connected to ${selectedRepo}` });
   };
   
   // Disconnect
@@ -320,9 +375,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
     localStorage.removeItem(REPO_SYNC_CONFIG_KEY);
     setConfig(null);
     setToken('');
-    setTokenUser(null);
-    setRepos([]);
-    setSelectedRepo('');
+    setDetectedInfo(null);
     setShowConnectModal(true);
   };
   
@@ -792,13 +845,9 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
             const sectionId = match[2];
             const rawContent = localStorage.getItem(`section-data-${sectionId}`) || '[]';
             
-            // Encrypt section data
-            if (encryptionEnabled && encryptionAvailable) {
-              const encrypted = await encrypt(JSON.parse(rawContent), password);
-              content = JSON.stringify(encrypted, null, 2);
-            } else {
-              content = rawContent;
-            }
+            // Encrypt section data (always encrypted for sync)
+            const encrypted = await encrypt(JSON.parse(rawContent), password);
+            content = JSON.stringify(encrypted, null, 2);
           } else {
             continue;
           }
@@ -1070,12 +1119,10 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         
         {config && (
           <div className="flex items-center gap-2">
-            {encryptionEnabled && (
-              <span className="flex items-center gap-1 text-xs text-emerald-400">
-                <Lock className="h-3 w-3" />
-                Encrypted
-              </span>
-            )}
+            <span className="flex items-center gap-1 text-xs text-emerald-400">
+              <Lock className="h-3 w-3" />
+              Encrypted
+            </span>
             <a
               href={`https://github.com/${config.owner}/${config.repo}`}
               target="_blank"
@@ -1108,14 +1155,6 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
            syncMessage.type === 'error' ? <AlertCircle className="h-4 w-4" /> :
            <RefreshCw className={cn("h-4 w-4", isSyncing && "animate-spin")} />}
           {syncMessage.text}
-        </div>
-      )}
-      
-      {/* Encryption Warning */}
-      {encryptionEnabled && !encryptionAvailable && (
-        <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400">
-          <AlertCircle className="h-4 w-4" />
-          Encryption enabled but session is locked. Unlock to sync encrypted data.
         </div>
       )}
       
@@ -1322,7 +1361,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl">
             <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
-              <h2 className="text-lg font-bold text-zinc-100">Connect Repository</h2>
+              <h2 className="text-lg font-bold text-zinc-100">🔄 Repository Sync</h2>
               <button onClick={() => setShowConnectModal(false)} className="text-zinc-400 hover:text-zinc-200">
                 <X className="h-5 w-5" />
               </button>
@@ -1334,121 +1373,63 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
                 <label className="mb-2 block text-sm font-medium text-zinc-300">
                   GitHub Personal Access Token
                 </label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type={showToken ? 'text' : 'password'}
-                      value={token}
-                      onChange={(e) => { setToken(e.target.value); setTokenUser(null); setRepos([]); }}
-                      placeholder="ghp_..."
-                      className="w-full rounded-lg bg-zinc-800 py-2 pl-3 pr-10 font-mono text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowToken(!showToken)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
-                    >
-                      {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
+                <div className="relative">
+                  <input
+                    type={showToken ? 'text' : 'password'}
+                    value={token}
+                    onChange={(e) => { setToken(e.target.value); setSyncMessage(null); }}
+                    placeholder="ghp_..."
+                    className="w-full rounded-lg bg-zinc-800 py-2 pl-3 pr-10 font-mono text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
                   <button
-                    onClick={handleValidateToken}
-                    disabled={!token.trim() || isValidating}
-                    className="flex items-center gap-2 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-600 disabled:opacity-50"
+                    type="button"
+                    onClick={() => setShowToken(!showToken)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
                   >
-                    {isValidating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    Verify
+                    {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                {tokenUser && (
-                  <p className="mt-1 text-xs text-emerald-400">
-                    ✓ Authenticated as @{tokenUser}
-                  </p>
-                )}
-                <p className="mt-1 text-xs text-zinc-500">
-                  Token needs <code className="rounded bg-zinc-800 px-1">repo</code> scope
+                <p className="mt-2 text-xs text-zinc-500">
+                  Token needs <code className="rounded bg-zinc-800 px-1">repo</code> scope. 
+                  <a 
+                    href="https://github.com/settings/tokens/new?scopes=repo" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-emerald-400 hover:text-emerald-300 ml-1"
+                  >
+                    Create token →
+                  </a>
                 </p>
               </div>
               
-              {/* Repository Selection */}
-              {repos.length > 0 && (
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-zinc-300">
-                    Repository
-                  </label>
-                  <select
-                    value={selectedRepo}
-                    onChange={(e) => setSelectedRepo(e.target.value)}
-                    className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  >
-                    <option value="">Select repository...</option>
-                    {repos.map(repo => (
-                      <option key={repo.full_name} value={repo.full_name}>
-                        {repo.full_name} {repo.private ? '(private)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              
-              {/* Branch & Path */}
-              {selectedRepo && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-zinc-300">Branch</label>
-                    <input
-                      type="text"
-                      value={branch}
-                      onChange={(e) => setBranch(e.target.value)}
-                      placeholder="main"
-                      className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-zinc-300">Data Path</label>
-                    <input
-                      type="text"
-                      value={dataPath}
-                      onChange={(e) => setDataPath(e.target.value)}
-                      placeholder="data"
-                      className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    />
-                  </div>
-                </div>
-              )}
-              
-              {/* Encryption toggle */}
-              {selectedRepo && (
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-zinc-800/50">
-                  <input
-                    type="checkbox"
-                    id="encryption"
-                    checked={encryptionEnabled}
-                    onChange={(e) => setEncryptionEnabled(e.target.checked)}
-                    className="rounded border-zinc-600 text-emerald-500 focus:ring-emerald-500"
-                    disabled={!encryptionAvailable && !isEncryptionSetUp()}
-                  />
-                  <div className="flex-1">
-                    <label htmlFor="encryption" className="text-sm font-medium text-zinc-300 cursor-pointer">
-                      Encrypt data before sync
-                    </label>
-                    <p className="text-xs text-zinc-500">
-                      {isEncryptionSetUp() ? 
-                        'AES-256 encryption enabled' : 
-                        'Setup encryption in Settings first'}
-                    </p>
-                  </div>
-                  {encryptionEnabled && <Lock className="h-4 w-4 text-emerald-400" />}
+              {/* Error message in modal */}
+              {syncMessage && syncMessage.type === 'error' && (
+                <div className="flex items-center gap-2 rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
+                  <AlertCircle className="h-4 w-4" />
+                  {syncMessage.text}
                 </div>
               )}
               
               {/* Info */}
-              <div className="rounded-lg bg-zinc-800/50 p-3 text-xs text-zinc-400">
+              <div className="rounded-lg bg-zinc-800/50 p-3 text-xs text-zinc-400 space-y-1">
                 <p className="flex items-center gap-1">
                   <AlertCircle className="h-3 w-3" />
-                  Data will be stored in <code className="text-zinc-300">{dataPath}/</code> folder
+                  Repository and branch will be detected automatically
+                </p>
+                <p className="flex items-center gap-1">
+                  <Lock className="h-3 w-3" />
+                  All data is encrypted with AES-256 before sync
                 </p>
               </div>
+              
+              {/* Prerequisites */}
+              {!isEncryptionSetUp() && (
+                <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
+                  <p className="text-sm text-amber-400">
+                    ⚠️ Encryption must be enabled first. Go to Settings → Security.
+                  </p>
+                </div>
+              )}
             </div>
             
             <div className="flex justify-end gap-2 border-t border-zinc-800 px-5 py-4">
@@ -1460,10 +1441,20 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
               </button>
               <button
                 onClick={handleConnect}
-                disabled={!token || !selectedRepo}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                disabled={!token.trim() || isConnecting || !isEncryptionSetUp()}
+                className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
               >
-                Connect Repository
+                {isConnecting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4" />
+                    Connect
+                  </>
+                )}
               </button>
             </div>
           </div>
