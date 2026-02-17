@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "algorithm": "AES-256-GCM",
+  "iv": "FXGk88jyI7TTTWFb",
+  "salt": "aI3n1ThC1EEGHUGAB+sZQg==",
+  "iterations": 100000,
+  "ciphertext": "K9VLNe+L5J4YPQGedVkqvkoLOVkfkr1ao0KCkV9GwfEh6dhUSc4FnK4URu2BRsoSAUWRHy4VsCwclGTvu7XlJlWjw6mVkjzpucQPnPMX5wuwI0WPtPrMXBK+q4dCNtECfWu+V8cZcBulhA7cqXWuxykRQiUlPKKeyasYcwn9poMlduDOV2GZ54sNhBdU9o1tTwnF5+13qaxBY2e/t1RprgAlFsrkzkl/utLPV/cDGRfKm8WVXpoR3iBZfClmvqM0iY0xSWACbMMJbQNwbZFEpaQa72AfV5lhJrI6uUPhDNAr5PW5ToCAz0IOBh0rPTpp00zGuxviWH2WEJEcZQddydt8hRVdKvWoBK0nsVJBFvDhs4ZWK+yiyS2idoEH14APM7YNI1evjC1qJgkADV4kSHzLFNtIr5KU7YHpe7G52JviFtqDYNokXP1uulADgF2m9yBtd4YivFniqBErpV7Z7vZzUi6YMfQsfKeCzhxOcAR9VcBqX60lH0mlTnOJaVxnbh3mpa2QYewjazIR0Lp9RSGO/3oNg1yPjgC05PkC1Gy2",
+  "checksum": "gctzs4dJOzyyTk4UrEOnp3mHxRNrGI7ZhDkctRlAOlI="
+}
