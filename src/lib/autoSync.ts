@@ -2,22 +2,18 @@
  * Auto Sync Module
  * 
  * Automatically loads encrypted data from GitHub Pages on app startup.
- * Compares versions and applies newer data.
+ * Uses PUBLIC_VAULT_PASSWORD for automatic decryption.
+ * 
+ * Security Model:
+ * - Data is encrypted in GitHub (not readable in repo)
+ * - Automatically decrypted on website load
+ * - No user password required for viewing
  */
 
-import { decrypt, getSessionPassword, isSessionActive, EncryptedData } from './crypto';
+import { decrypt, EncryptedData } from './crypto';
+import { PUBLIC_VAULT_PASSWORD, SYNC_KEYS, DATA_PATHS } from '../config/constants';
 
-// Storage keys
-const WORKSPACES_KEY = 'pentest-hub-workspaces';
-const SECTIONS_KEY = 'pentest-hub-sections';
-const SYNC_VERSION_KEY = 'pentest-hub-sync-version';
-
-// File paths (relative to app root)
-const DATA_PATH = './data';
-const WORKSPACES_FILE = 'workspaces.enc.json';
-const SECTIONS_FILE = 'sections.enc.json';
-const METADATA_FILE = 'metadata.json';
-
+// Types
 interface SyncResult {
   success: boolean;
   workspacesLoaded: boolean;
@@ -29,20 +25,21 @@ interface SyncResult {
 interface Metadata {
   version: number;
   lastModified: string;
+  passwordFingerprint?: string;
 }
 
 /**
  * Get local sync version
  */
 function getLocalVersion(): number {
-  return parseInt(localStorage.getItem(SYNC_VERSION_KEY) || '0', 10);
+  return parseInt(localStorage.getItem(SYNC_KEYS.SYNC_VERSION) || '0', 10);
 }
 
 /**
  * Set local sync version
  */
 function setLocalVersion(version: number): void {
-  localStorage.setItem(SYNC_VERSION_KEY, String(version));
+  localStorage.setItem(SYNC_KEYS.SYNC_VERSION, String(version));
 }
 
 /**
@@ -67,104 +64,85 @@ async function fetchJson<T>(path: string): Promise<T | null> {
 }
 
 /**
- * Auto-sync data from GitHub Pages
- * Called after successful unlock
+ * Decrypt data if encrypted, return as-is if not
  */
-export async function autoSyncFromServer(): Promise<SyncResult> {
+async function decryptIfNeeded<T>(data: unknown, password: string): Promise<T | null> {
+  try {
+    // Check if encrypted
+    if (data && typeof data === 'object' && 'algorithm' in data) {
+      const encrypted = data as EncryptedData;
+      if (encrypted.algorithm === 'AES-256-GCM') {
+        return await decrypt<T>(encrypted, password);
+      }
+    }
+    // Not encrypted, return as-is
+    return data as T;
+  } catch (error) {
+    console.error('[AutoSync] Decryption failed:', error);
+    return null;
+  }
+}
+
+/**
+ * Auto-load data from GitHub Pages
+ * Called on app startup - automatically decrypts with PUBLIC_VAULT_PASSWORD
+ */
+export async function autoLoadFromServer(): Promise<SyncResult> {
   const result: SyncResult = {
     success: false,
     workspacesLoaded: false,
     sectionsLoaded: false,
     itemsLoaded: 0,
   };
-  
-  // Check if session is active
-  if (!isSessionActive()) {
-    result.error = 'Session not active';
-    return result;
-  }
-  
-  const password = getSessionPassword();
-  if (!password) {
-    result.error = 'No session password';
-    return result;
-  }
-  
+
   try {
+    console.log('[AutoSync] Starting auto-load from server...');
+    
     // 1. Fetch metadata
-    const metadata = await fetchJson<Metadata>(`${DATA_PATH}/${METADATA_FILE}`);
+    const metadata = await fetchJson<Metadata>(`${DATA_PATHS.BASE}/${DATA_PATHS.METADATA}`);
     const remoteVersion = metadata?.version || 0;
     const localVersion = getLocalVersion();
     
     console.log(`[AutoSync] Local version: ${localVersion}, Remote version: ${remoteVersion}`);
     
     // 2. Fetch encrypted workspaces
-    const workspacesEncrypted = await fetchJson<EncryptedData>(`${DATA_PATH}/${WORKSPACES_FILE}`);
+    const workspacesData = await fetchJson<unknown>(`${DATA_PATHS.BASE}/${DATA_PATHS.WORKSPACES}`);
     
-    if (workspacesEncrypted) {
-      try {
-        // Check if encrypted
-        if (workspacesEncrypted.algorithm === 'AES-256-GCM') {
-          const decrypted = await decrypt(workspacesEncrypted, password);
-          localStorage.setItem(WORKSPACES_KEY, JSON.stringify(decrypted));
-          result.workspacesLoaded = true;
-          console.log('[AutoSync] Loaded workspaces from server');
-        } else {
-          // Not encrypted (legacy), use as-is
-          localStorage.setItem(WORKSPACES_KEY, JSON.stringify(workspacesEncrypted));
-          result.workspacesLoaded = true;
-          console.log('[AutoSync] Loaded workspaces (unencrypted)');
-        }
-      } catch (decryptError) {
-        console.error('[AutoSync] Failed to decrypt workspaces:', decryptError);
+    if (workspacesData) {
+      const decrypted = await decryptIfNeeded<unknown[]>(workspacesData, PUBLIC_VAULT_PASSWORD);
+      if (decrypted) {
+        localStorage.setItem(SYNC_KEYS.WORKSPACES, JSON.stringify(decrypted));
+        result.workspacesLoaded = true;
+        console.log('[AutoSync] Loaded workspaces from server');
       }
     }
     
     // 3. Fetch encrypted sections
-    const sectionsEncrypted = await fetchJson<EncryptedData>(`${DATA_PATH}/${SECTIONS_FILE}`);
+    const sectionsData = await fetchJson<unknown>(`${DATA_PATHS.BASE}/${DATA_PATHS.SECTIONS}`);
     
-    if (sectionsEncrypted) {
-      try {
-        if (sectionsEncrypted.algorithm === 'AES-256-GCM') {
-          const decrypted = await decrypt(sectionsEncrypted, password);
-          localStorage.setItem(SECTIONS_KEY, JSON.stringify(decrypted));
-          result.sectionsLoaded = true;
-          console.log('[AutoSync] Loaded sections from server');
-        } else {
-          localStorage.setItem(SECTIONS_KEY, JSON.stringify(sectionsEncrypted));
-          result.sectionsLoaded = true;
-          console.log('[AutoSync] Loaded sections (unencrypted)');
-        }
-      } catch (decryptError) {
-        console.error('[AutoSync] Failed to decrypt sections:', decryptError);
-      }
-    }
-    
-    // 4. Fetch section items
-    if (result.sectionsLoaded) {
-      const sections = JSON.parse(localStorage.getItem(SECTIONS_KEY) || '[]');
-      
-      for (const section of sections) {
-        const itemPath = `${DATA_PATH}/${section.workspaceId}/${section.id}.json`;
-        const itemEncrypted = await fetchJson(itemPath);
+    if (sectionsData) {
+      const decrypted = await decryptIfNeeded<{ workspaceId: string; id: string }[]>(sectionsData, PUBLIC_VAULT_PASSWORD);
+      if (decrypted) {
+        localStorage.setItem(SYNC_KEYS.SECTIONS, JSON.stringify(decrypted));
+        result.sectionsLoaded = true;
+        console.log('[AutoSync] Loaded sections from server');
         
-        if (itemEncrypted) {
-          try {
-            if ((itemEncrypted as EncryptedData).algorithm === 'AES-256-GCM') {
-              const decrypted = await decrypt(itemEncrypted as EncryptedData, password);
-              localStorage.setItem(`section-data-${section.id}`, JSON.stringify(decrypted));
-              result.itemsLoaded++;
-            } else {
-              localStorage.setItem(`section-data-${section.id}`, JSON.stringify(itemEncrypted));
+        // 4. Fetch section items
+        for (const section of decrypted) {
+          const itemPath = `${DATA_PATHS.BASE}/${section.workspaceId}/${section.id}.json`;
+          const itemData = await fetchJson<unknown>(itemPath);
+          
+          if (itemData) {
+            const decryptedItems = await decryptIfNeeded<unknown[]>(itemData, PUBLIC_VAULT_PASSWORD);
+            if (decryptedItems) {
+              localStorage.setItem(`section-data-${section.id}`, JSON.stringify(decryptedItems));
               result.itemsLoaded++;
             }
-          } catch (decryptError) {
-            console.error(`[AutoSync] Failed to decrypt section ${section.id}:`, decryptError);
           }
         }
+        
+        console.log(`[AutoSync] Loaded ${result.itemsLoaded} section items`);
       }
-      
-      console.log(`[AutoSync] Loaded ${result.itemsLoaded} section items`);
     }
     
     // 5. Update local version
@@ -176,7 +154,7 @@ export async function autoSyncFromServer(): Promise<SyncResult> {
     
     // 6. Dispatch event to notify WorkspaceContext to reload
     if (result.success) {
-      console.log('[AutoSync] Dispatching workspace-reload event');
+      console.log('[AutoSync] Auto-load successful, dispatching workspace-reload event');
       window.dispatchEvent(new CustomEvent('workspace-reload'));
     }
 
@@ -196,7 +174,7 @@ export async function checkRemoteData(): Promise<{
   version: number;
   lastModified?: string;
 }> {
-  const metadata = await fetchJson<Metadata>(`${DATA_PATH}/${METADATA_FILE}`);
+  const metadata = await fetchJson<Metadata>(`${DATA_PATHS.BASE}/${DATA_PATHS.METADATA}`);
   
   if (metadata) {
     return {
@@ -207,10 +185,16 @@ export async function checkRemoteData(): Promise<{
   }
   
   // Check if at least workspaces file exists
-  const workspaces = await fetchJson(`${DATA_PATH}/${WORKSPACES_FILE}`);
+  const workspaces = await fetchJson(`${DATA_PATHS.BASE}/${DATA_PATHS.WORKSPACES}`);
   
   return {
     exists: workspaces !== null,
     version: 0,
   };
 }
+
+/**
+ * Legacy function name for backward compatibility
+ * @deprecated Use autoLoadFromServer instead
+ */
+export const autoSyncFromServer = autoLoadFromServer;

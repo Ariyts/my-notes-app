@@ -37,12 +37,11 @@ import { cn } from '../../utils/cn';
 import { 
   EncryptedData, 
   encrypt, 
-  decrypt, 
+  decrypt,
   isEncryptionSetUp,
-  getSessionPassword,
-  isSessionActive,
 } from '../../lib/crypto';
 import { Workspace, Section, SectionItem } from '../../types/sections';
+import { PUBLIC_VAULT_PASSWORD, SYNC_KEYS, DATA_PATHS } from '../../config/constants';
 
 // Types
 interface RepoSyncConfig {
@@ -97,13 +96,13 @@ interface GitHubRepo {
 }
 
 // Storage keys
-const REPO_SYNC_CONFIG_KEY = 'pentest-hub-repo-sync-config';
-const SYNC_VERSION_KEY = 'pentest-hub-sync-version';
+const REPO_SYNC_CONFIG_KEY = SYNC_KEYS.REPO_CONFIG;
+const SYNC_VERSION_KEY = SYNC_KEYS.SYNC_VERSION;
 
 // File names (encrypted versions)
-const WORKSPACES_FILE = 'workspaces.enc.json';
-const SECTIONS_FILE = 'sections.enc.json';
-const METADATA_FILE = 'metadata.json';
+const WORKSPACES_FILE = DATA_PATHS.WORKSPACES;
+const SECTIONS_FILE = DATA_PATHS.SECTIONS;
+const METADATA_FILE = DATA_PATHS.METADATA;
 
 // Load/save config
 function loadConfig(): RepoSyncConfig | null {
@@ -119,22 +118,9 @@ function saveConfig(config: RepoSyncConfig): void {
   localStorage.setItem(REPO_SYNC_CONFIG_KEY, JSON.stringify(config));
 }
 
-// Get decrypted token from config
-async function getDecryptedToken(config: RepoSyncConfig): Promise<string | null> {
-  // If we have encrypted token, decrypt it
-  if (config.encryptedToken) {
-    const password = getSessionPassword();
-    if (!password) return null;
-    try {
-      const decrypted = await decrypt(config.encryptedToken, password);
-      return (decrypted as { token: string }).token;
-    } catch {
-      console.error('Failed to decrypt token');
-      return null;
-    }
-  }
-  // Legacy: plain token
-  return config.token || null;
+// Get decrypted token from config (just return plain token)
+function getDecryptedToken(config: RepoSyncConfig): Promise<string | null> {
+  return Promise.resolve(config.token || null);
 }
 
 // Format file size
@@ -272,29 +258,14 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   const [token, setToken] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [detectedInfo, setDetectedInfo] = useState<{
-    owner: string;
-    repo: string;
-    branch: string;
-  } | null>(null);
   
-  // Encryption state
-  const encryptionAvailable = isEncryptionSetUp() && isSessionActive();
-  
-  // Load config and decrypt token on mount
+  // Load config on mount
   useEffect(() => {
     const saved = loadConfig();
-    if (saved) {
+    if (saved && saved.token) {
       setConfig(saved);
-      // Decrypt token if needed
-      getDecryptedToken(saved).then(t => {
-        if (t) {
-          setDecryptedToken(t);
-          setShowConnectModal(false);
-        } else if (!saved.token) {
-          setShowConnectModal(true);
-        }
-      });
+      setDecryptedToken(saved.token);
+      setShowConnectModal(false);
     } else {
       setShowConnectModal(true);
     }
@@ -377,28 +348,19 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       const defaultBranch = repoData.default_branch;
       
       // 4. Encrypt token and save config
-      const password = getSessionPassword();
-      let encryptedToken: EncryptedData | undefined;
-      
-      if (password) {
-        encryptedToken = await encrypt({ token }, password);
-      }
-      
       const newConfig: RepoSyncConfig = {
-        token: password ? undefined : token, // Only store plain if no encryption
-        encryptedToken,
+        token, // Store token directly
         owner: detected.owner,
         repo: detected.repo,
         branch: defaultBranch,
-        dataPath: 'data', // Fixed path
-        encryptionEnabled: true, // Always encrypted
+        dataPath: 'data',
+        encryptionEnabled: true, // Data is always encrypted with PUBLIC_VAULT_PASSWORD
       };
       
       saveConfig(newConfig);
       setConfig(newConfig);
-      setDecryptedToken(token); // Store in memory for this session
+      setDecryptedToken(token);
       setShowConnectModal(false);
-      setDetectedInfo({ owner: detected.owner, repo: detected.repo, branch: defaultBranch });
       setSyncMessage({ type: 'success', text: `Connected! Using branch: ${defaultBranch}` });
       
     } catch (err) {
@@ -415,7 +377,6 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
     setConfig(null);
     setDecryptedToken(null);
     setToken('');
-    setDetectedInfo(null);
     setShowConnectModal(true);
   };
   
@@ -507,14 +468,9 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
             try {
               const remoteData = JSON.parse(remote.content);
               
-              // Check if encrypted
-              if (remoteData.algorithm === 'AES-256-GCM' && encryptionAvailable) {
-                const password = getSessionPassword();
-                if (password) {
-                  remoteItems = await decrypt<SectionItem[]>(remoteData as EncryptedData, password);
-                } else {
-                  remoteItems = null;
-                }
+              // Check if encrypted - decrypt with PUBLIC_VAULT_PASSWORD
+              if (remoteData.algorithm === 'AES-256-GCM') {
+                remoteItems = await decrypt<SectionItem[]>(remoteData as EncryptedData, PUBLIC_VAULT_PASSWORD);
               } else {
                 remoteItems = remoteData;
               }
@@ -590,38 +546,34 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       const remoteWorkspaces = await fetchRemoteFile(workspacesPath);
       const remoteSections = await fetchRemoteFile(sectionsPath);
       
-      // Add workspaces.enc.json change (always include if encryption available)
+      // Add workspaces.enc.json change (always include - data is always encrypted)
       // Note: We compare encrypted content, not plaintext
-      if (encryptionAvailable) {
-        changes.unshift({
-          path: workspacesPath,
-          workspaceName: 'System',
-          status: remoteWorkspaces ? 'modified' : 'added',
-          additions: 1, // Encrypted content, approximate
-          deletions: remoteWorkspaces ? 1 : 0,
-          sizeBytes: new Blob([localWorkspaces]).size,
-          itemChanges: [],
-          selected: true,
-          localSize: new Blob([localWorkspaces]).size,
-          remoteSize: remoteWorkspaces ? new Blob([remoteWorkspaces.content]).size : 0,
-        });
-      }
+      changes.unshift({
+        path: workspacesPath,
+        workspaceName: 'System',
+        status: remoteWorkspaces ? 'modified' : 'added',
+        additions: 1, // Encrypted content, approximate
+        deletions: remoteWorkspaces ? 1 : 0,
+        sizeBytes: new Blob([localWorkspaces]).size,
+        itemChanges: [],
+        selected: true,
+        localSize: new Blob([localWorkspaces]).size,
+        remoteSize: remoteWorkspaces ? new Blob([remoteWorkspaces.content]).size : 0,
+      });
       
       // Add sections.enc.json change
-      if (encryptionAvailable) {
-        changes.unshift({
-          path: sectionsPath,
-          workspaceName: 'System',
-          status: remoteSections ? 'modified' : 'added',
-          additions: 1,
-          deletions: remoteSections ? 1 : 0,
-          sizeBytes: new Blob([localSections]).size,
-          itemChanges: [],
-          selected: true,
-          localSize: new Blob([localSections]).size,
-          remoteSize: remoteSections ? new Blob([remoteSections.content]).size : 0,
-        });
-      }
+      changes.unshift({
+        path: sectionsPath,
+        workspaceName: 'System',
+        status: remoteSections ? 'modified' : 'added',
+        additions: 1,
+        deletions: remoteSections ? 1 : 0,
+        sizeBytes: new Blob([localSections]).size,
+        itemChanges: [],
+        selected: true,
+        localSize: new Blob([localSections]).size,
+        remoteSize: remoteSections ? new Blob([remoteSections.content]).size : 0,
+      });
       
       setChanges(changes);
       
@@ -737,17 +689,6 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   const handlePush = async () => {
     if (!config) return;
     
-    // Require encryption for sync
-    if (!isEncryptionSetUp()) {
-      setSyncMessage({ type: 'error', text: 'Encryption must be enabled before syncing. Go to Settings → Security.' });
-      return;
-    }
-    
-    if (!isSessionActive()) {
-      setSyncMessage({ type: 'error', text: 'Please unlock your vault first.' });
-      return;
-    }
-    
     const selectedChanges = changes.filter(c => c.selected && c.status !== 'unchanged');
     if (selectedChanges.length === 0) {
       setSyncMessage({ type: 'info', text: 'No files selected' });
@@ -757,13 +698,20 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
     setIsSyncing(true);
     setSyncMessage({ type: 'info', text: 'Pushing encrypted data...' });
     
+    const apiToken = decryptedToken || config.token;
+    if (!apiToken) {
+      setSyncMessage({ type: 'error', text: 'No GitHub token available' });
+      setIsSyncing(false);
+      return;
+    }
+    
     try {
       // Get current branch commit
       const branchRes = await fetch(
         `https://api.github.com/repos/${config.owner}/${config.repo}/git/refs/heads/${config.branch}`,
         {
           headers: {
-            Authorization: `Bearer ${decryptedToken || config.token}`,
+            Authorization: `Bearer ${apiToken}`,
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
           },
@@ -783,7 +731,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
             `https://api.github.com/repos/${config.owner}/${config.repo}`,
             {
               headers: {
-                Authorization: `Bearer ${decryptedToken || config.token}`,
+                Authorization: `Bearer ${apiToken}`,
                 Accept: 'application/vnd.github+json',
                 'X-GitHub-Api-Version': '2022-11-28',
               },
@@ -809,7 +757,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
               `https://api.github.com/repos/${config.owner}/${config.repo}/branches`,
               {
                 headers: {
-                  Authorization: `Bearer ${decryptedToken || config.token}`,
+                  Authorization: `Bearer ${apiToken}`,
                   Accept: 'application/vnd.github+json',
                   'X-GitHub-Api-Version': '2022-11-28',
                 },
@@ -841,7 +789,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
           `https://api.github.com/repos/${config.owner}/${config.repo}/git/commits/${baseTreeSha}`,
           {
             headers: {
-              Authorization: `Bearer ${decryptedToken || config.token}`,
+              Authorization: `Bearer ${apiToken}`,
               Accept: 'application/vnd.github+json',
               'X-GitHub-Api-Version': '2022-11-28',
             },
@@ -858,11 +806,9 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       
       // Create blobs for each file
       const treeItems: { path: string; mode: string; type: string; sha: string }[] = [];
-      const password = getSessionPassword();
       
-      if (!password) {
-        throw new Error('Session password not available');
-      }
+      // Use PUBLIC_VAULT_PASSWORD for encryption (allows automatic decryption on load)
+      const password = PUBLIC_VAULT_PASSWORD;
       
       // Get current sync version
       let currentVersion = parseInt(localStorage.getItem(SYNC_VERSION_KEY) || '0', 10);
@@ -905,7 +851,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
           {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${decryptedToken || config.token}`,
+              Authorization: `Bearer ${apiToken}`,
               'Content-Type': 'application/json',
               Accept: 'application/vnd.github+json',
               'X-GitHub-Api-Version': '2022-11-28',
@@ -934,7 +880,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${decryptedToken || config.token}`,
+            Authorization: `Bearer ${apiToken}`,
             'Content-Type': 'application/json',
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
@@ -957,7 +903,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${decryptedToken || config.token}`,
+            Authorization: `Bearer ${apiToken}`,
             'Content-Type': 'application/json',
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
@@ -977,7 +923,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${decryptedToken || config.token}`,
+            Authorization: `Bearer ${apiToken}`,
             'Content-Type': 'application/json',
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
@@ -998,7 +944,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         {
           method: 'PATCH',
           headers: {
-            Authorization: `Bearer ${decryptedToken || config.token}`,
+            Authorization: `Bearer ${apiToken}`,
             'Content-Type': 'application/json',
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
@@ -1041,28 +987,12 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   const handlePull = async () => {
     if (!config) return;
     
-    // Require encryption for sync
-    if (!isEncryptionSetUp()) {
-      setSyncMessage({ type: 'error', text: 'Encryption must be enabled before syncing.' });
-      return;
-    }
-    
-    if (!isSessionActive()) {
-      setSyncMessage({ type: 'error', text: 'Please unlock your vault first.' });
-      return;
-    }
-    
     if (!confirm('This will replace local data with data from repository. Continue?')) return;
     
     setIsSyncing(true);
     setSyncMessage({ type: 'info', text: 'Pulling and decrypting data...' });
     
-    const password = getSessionPassword();
-    if (!password) {
-      setSyncMessage({ type: 'error', text: 'Session password not available.' });
-      setIsSyncing(false);
-      return;
-    }
+    const password = PUBLIC_VAULT_PASSWORD;
     
     try {
       // Pull workspaces.enc.json (encrypted)

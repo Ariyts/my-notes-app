@@ -139,7 +139,7 @@ export function WorkspaceBar() {
                     )}
                     style={{ 
                       backgroundColor: workspace.color,
-                      ringColor: isActive ? workspace.color : undefined
+                      boxShadow: isActive ? `0 0 0 2px var(--tw-ring-color, ${workspace.color})` : undefined
                     }}
                   />
                   

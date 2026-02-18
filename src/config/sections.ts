@@ -13,6 +13,7 @@ export const DEFAULT_SECTIONS: Section[] = [
     name: 'Prompts',
     icon: 'Terminal',
     typeId: 'cards',
+    workspaceId: 'default',
     config: {
       categories: ['recon', 'exploit', 'privesc', 'persistence', 'evasion', 'reporting', 'social', 'other'],
       copyField: 'content',
@@ -25,6 +26,7 @@ export const DEFAULT_SECTIONS: Section[] = [
     name: 'Pentest Notes',
     icon: 'FileText',
     typeId: 'folders',
+    workspaceId: 'default',
     config: {
       rootFolders: ['Web', 'Network', 'Active Directory', 'Cloud', 'Mobile', 'Methodology'],
       predefinedCategories: [
@@ -57,6 +59,7 @@ export const DEFAULT_SECTIONS: Section[] = [
     name: 'Snippets',
     icon: 'Database',
     typeId: 'commands',
+    workspaceId: 'default',
     config: {
       copyField: 'command',
     },
@@ -68,6 +71,7 @@ export const DEFAULT_SECTIONS: Section[] = [
     name: 'Resources',
     icon: 'Link',
     typeId: 'links',
+    workspaceId: 'default',
     config: {
       categories: ['tools', 'cheatsheets', 'wordlists', 'payloads', 'exploits', 'learning', 'blogs', 'labs', 'ctf', 'other'],
     },
