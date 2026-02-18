@@ -46,7 +46,8 @@ import { Workspace, Section, SectionItem } from '../../types/sections';
 
 // Types
 interface RepoSyncConfig {
-  token: string;
+  token?: string; // Legacy - will be migrated
+  encryptedToken?: EncryptedData; // Encrypted token
   owner: string;
   repo: string;
   branch: string;
@@ -116,6 +117,24 @@ function loadConfig(): RepoSyncConfig | null {
 
 function saveConfig(config: RepoSyncConfig): void {
   localStorage.setItem(REPO_SYNC_CONFIG_KEY, JSON.stringify(config));
+}
+
+// Get decrypted token from config
+async function getDecryptedToken(config: RepoSyncConfig): Promise<string | null> {
+  // If we have encrypted token, decrypt it
+  if (config.encryptedToken) {
+    const password = getSessionPassword();
+    if (!password) return null;
+    try {
+      const decrypted = await decrypt(config.encryptedToken, password);
+      return (decrypted as { token: string }).token;
+    } catch {
+      console.error('Failed to decrypt token');
+      return null;
+    }
+  }
+  // Legacy: plain token
+  return config.token || null;
 }
 
 // Format file size
@@ -241,7 +260,8 @@ function detectRepoFromUrl(): { owner: string; repo: string } | null {
 export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncProps) {
   // State
   const [config, setConfig] = useState<RepoSyncConfig | null>(loadConfig);
-  const [showConnectModal, setShowConnectModal] = useState(!config?.token);
+  const [decryptedToken, setDecryptedToken] = useState<string | null>(null);
+  const [showConnectModal, setShowConnectModal] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [changes, setChanges] = useState<FileChange[]>([]);
@@ -261,12 +281,22 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   // Encryption state
   const encryptionAvailable = isEncryptionSetUp() && isSessionActive();
   
-  // Load config on mount
+  // Load config and decrypt token on mount
   useEffect(() => {
     const saved = loadConfig();
     if (saved) {
       setConfig(saved);
-      setShowConnectModal(!saved.token);
+      // Decrypt token if needed
+      getDecryptedToken(saved).then(t => {
+        if (t) {
+          setDecryptedToken(t);
+          setShowConnectModal(false);
+        } else if (!saved.token) {
+          setShowConnectModal(true);
+        }
+      });
+    } else {
+      setShowConnectModal(true);
     }
   }, []);
   
@@ -346,9 +376,17 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       const repoData = await repoRes.json();
       const defaultBranch = repoData.default_branch;
       
-      // 4. Save config
+      // 4. Encrypt token and save config
+      const password = getSessionPassword();
+      let encryptedToken: EncryptedData | undefined;
+      
+      if (password) {
+        encryptedToken = await encrypt({ token }, password);
+      }
+      
       const newConfig: RepoSyncConfig = {
-        token,
+        token: password ? undefined : token, // Only store plain if no encryption
+        encryptedToken,
         owner: detected.owner,
         repo: detected.repo,
         branch: defaultBranch,
@@ -358,6 +396,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
       
       saveConfig(newConfig);
       setConfig(newConfig);
+      setDecryptedToken(token); // Store in memory for this session
       setShowConnectModal(false);
       setDetectedInfo({ owner: detected.owner, repo: detected.repo, branch: defaultBranch });
       setSyncMessage({ type: 'success', text: `Connected! Using branch: ${defaultBranch}` });
@@ -374,6 +413,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   const handleDisconnect = () => {
     localStorage.removeItem(REPO_SYNC_CONFIG_KEY);
     setConfig(null);
+    setDecryptedToken(null);
     setToken('');
     setDetectedInfo(null);
     setShowConnectModal(true);
@@ -408,12 +448,15 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
   const fetchRemoteFile = async (path: string): Promise<{ content: string; sha: string } | null> => {
     if (!config) return null;
     
+    const apiToken = decryptedToken || config.token;
+    if (!apiToken) return null;
+    
     try {
       const res = await fetch(
         `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${path}?ref=${config.branch}`,
         {
           headers: {
-            Authorization: `Bearer ${config.token}`,
+            Authorization: `Bearer ${apiToken}`,
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
           },
@@ -720,7 +763,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         `https://api.github.com/repos/${config.owner}/${config.repo}/git/refs/heads/${config.branch}`,
         {
           headers: {
-            Authorization: `Bearer ${config.token}`,
+            Authorization: `Bearer ${decryptedToken || config.token}`,
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
           },
@@ -740,7 +783,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
             `https://api.github.com/repos/${config.owner}/${config.repo}`,
             {
               headers: {
-                Authorization: `Bearer ${config.token}`,
+                Authorization: `Bearer ${decryptedToken || config.token}`,
                 Accept: 'application/vnd.github+json',
                 'X-GitHub-Api-Version': '2022-11-28',
               },
@@ -766,7 +809,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
               `https://api.github.com/repos/${config.owner}/${config.repo}/branches`,
               {
                 headers: {
-                  Authorization: `Bearer ${config.token}`,
+                  Authorization: `Bearer ${decryptedToken || config.token}`,
                   Accept: 'application/vnd.github+json',
                   'X-GitHub-Api-Version': '2022-11-28',
                 },
@@ -798,7 +841,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
           `https://api.github.com/repos/${config.owner}/${config.repo}/git/commits/${baseTreeSha}`,
           {
             headers: {
-              Authorization: `Bearer ${config.token}`,
+              Authorization: `Bearer ${decryptedToken || config.token}`,
               Accept: 'application/vnd.github+json',
               'X-GitHub-Api-Version': '2022-11-28',
             },
@@ -862,7 +905,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
           {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${config.token}`,
+              Authorization: `Bearer ${decryptedToken || config.token}`,
               'Content-Type': 'application/json',
               Accept: 'application/vnd.github+json',
               'X-GitHub-Api-Version': '2022-11-28',
@@ -891,7 +934,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${config.token}`,
+            Authorization: `Bearer ${decryptedToken || config.token}`,
             'Content-Type': 'application/json',
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
@@ -914,7 +957,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${config.token}`,
+            Authorization: `Bearer ${decryptedToken || config.token}`,
             'Content-Type': 'application/json',
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
@@ -934,7 +977,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${config.token}`,
+            Authorization: `Bearer ${decryptedToken || config.token}`,
             'Content-Type': 'application/json',
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
@@ -955,7 +998,7 @@ export function RepositorySync({ onDataChange, onSyncComplete }: RepositorySyncP
         {
           method: 'PATCH',
           headers: {
-            Authorization: `Bearer ${config.token}`,
+            Authorization: `Bearer ${decryptedToken || config.token}`,
             'Content-Type': 'application/json',
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
