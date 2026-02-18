@@ -8,6 +8,7 @@ import { WorkspaceProvider } from './lib/WorkspaceContext';
 import { useEffect, useState, useCallback } from 'react';
 import { LockScreen } from './components/security/LockScreen';
 import { SetupPassword } from './components/security/SetupPassword';
+import { WelcomeScreen } from './components/security/WelcomeScreen';
 import { 
   isEncryptionSetUp, 
   isSessionActive, 
@@ -15,7 +16,7 @@ import {
   clearSession,
 } from './lib/crypto';
 import { useAutoLock } from './lib/useAutoLock';
-import { autoSyncFromServer } from './lib/autoSync';
+import { autoSyncFromServer, checkRemoteData } from './lib/autoSync';
 
 // Legacy route redirector - redirects old routes to new section routes
 function LegacyRedirect() {
@@ -23,10 +24,20 @@ function LegacyRedirect() {
   return <Navigate to={`/section/${typeId}`} replace />;
 }
 
-type AppStatus = 'loading' | 'setup' | 'locked' | 'unlocked' | 'syncing';
+type AppStatus = 'loading' | 'welcome' | 'setup' | 'locked' | 'unlocked' | 'syncing';
 
 // Auto-lock timeout (15 minutes)
 const AUTO_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
+
+// Check if this is a fresh install (no local data)
+function isFreshInstall(): boolean {
+  const hasWorkspaces = localStorage.getItem('pentest-hub-workspaces');
+  const hasSections = localStorage.getItem('pentest-hub-sections');
+  const hasEncryption = isEncryptionSetUp();
+  
+  // Fresh install if no encryption AND no local data
+  return !hasEncryption && !hasWorkspaces && !hasSections;
+}
 
 export function App() {
   const [status, setStatus] = useState<AppStatus>('loading');
@@ -76,13 +87,33 @@ export function App() {
       (window as any).deferredPrompt = e;
     });
     
-    // Check encryption status
+    // Check app status
     const checkStatus = async () => {
       const encryptionSetup = isEncryptionSetUp();
       const sessionActive = isSessionActive();
       const hasVault = loadEncryptedVault() !== null;
       
       setEncryptionEnabled(encryptionSetup);
+      
+      // Check if this is a fresh install
+      if (isFreshInstall()) {
+        // Check if there's data on the server
+        try {
+          const remote = await checkRemoteData();
+          if (remote.exists) {
+            // Data exists on server - show welcome screen with restore option
+            console.log('[App] Remote data found, showing welcome screen');
+            setStatus('welcome');
+            return;
+          }
+        } catch (err) {
+          console.log('[App] Could not check remote data:', err);
+        }
+        // No remote data - could still show welcome for new user setup
+        // For now, allow direct access
+        setStatus('unlocked');
+        return;
+      }
       
       if (encryptionSetup && hasVault) {
         // Encryption is set up
@@ -132,6 +163,13 @@ export function App() {
     setShowSetup(false);
   };
   
+  const handleWelcomeComplete = () => {
+    setEncryptionEnabled(isEncryptionSetUp());
+    setStatus('unlocked');
+    // Sync after restore
+    syncFromServer();
+  };
+  
   // Dismiss auto-lock warning (extends timer)
   const dismissWarning = useCallback(() => {
     setAutoLockWarning(null);
@@ -145,6 +183,11 @@ export function App() {
         <div className="text-zinc-400">Loading...</div>
       </div>
     );
+  }
+  
+  // Welcome screen for new devices
+  if (status === 'welcome') {
+    return <WelcomeScreen onComplete={handleWelcomeComplete} />;
   }
   
   // Setup password (shown when explicitly requested)
